@@ -2139,13 +2139,11 @@ document.addEventListener('keydown', e => {
       if (cheatInput === 'cutieiscutie') {
         score = REQUIRED_HEARTS;
         hasKey = true;
-        const doorX = LEVEL_WIDTH - 320;
-        player.x = doorX - player.w - 5;
-        player.y = GROUND_Y - player.h;
-        player.vy = 0;
-        player.vx = 0;
         cheatMessageText = '🔑 Key obtained!';
-        cheatMessageTimer = 120;
+        cheatMessageTimer = 60;
+        stopBGMusic();
+        playDoorUnlockSound();
+        setTimeout(() => { gameState = 'cartride'; cartRideTimer = 0; cartRideX = 0; playCartSound(); }, 800);
       } else {
         cheatMessageText = 'Access denied';
         cheatMessageTimer = 60;
