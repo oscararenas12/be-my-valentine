@@ -667,6 +667,20 @@ let introTimer = 0;
 let introText = '';
 let revealTimer = 0;
 let confettiParticles = [];
+let valentineState = 'asking'; // 'asking', 'celebration'
+let noCount = 0;
+let noMessages = [
+  'Are you sure? 🥺',
+  'Really?? 😭',
+  'Come on, Cutie... 💔',
+  "I'll ask again... 😤",
+  'Wrong answer! Try again 😂'
+];
+let noMessageText = '';
+let noMessageTimer = 0;
+let yesBtnScale = 1;
+let noBtnScale = 1;
+let celebrationTimer = 0;
 
 function resetGame() {
   cameraX = 0;
@@ -919,6 +933,12 @@ function resetGame() {
   keyMessageTimer = 0;
   doorMessage = '';
   doorMessageTimer = 0;
+  valentineState = 'asking';
+  noCount = 0;
+  noMessageTimer = 0;
+  yesBtnScale = 1;
+  noBtnScale = 1;
+  celebrationTimer = 0;
 
   // Oscar is NOT visible during gameplay - only after cart ride
   oscarNPC = { x: LEVEL_WIDTH - 200, y: GROUND_Y - 30, visible: false };
@@ -1865,11 +1885,63 @@ function drawReveal() {
     drawText('Be My Valentine,', W / 2, H * 0.35, '#ff69b4', `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`, 'center');
     drawText('Cutie? 💝', W / 2, H * 0.45, '#ffd700', `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`, 'center');
 
-    if (revealTimer > 200) {
+    if (revealTimer > 200 && valentineState === 'asking') {
       ctx.globalAlpha = Math.min(1, (revealTimer - 200) / 40);
-      drawText(`Hearts collected: ${score}/32`, W / 2, H * 0.57, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
-      drawText('🌸 I love you! 🌸', W / 2, H * 0.63, '#fff', null, 'center');
-      drawText('- Your Pogi ♥', W / 2, H * 0.7, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
+
+      // No message display
+      if (noMessageTimer > 0) {
+        noMessageTimer--;
+        drawText(noMessageText, W / 2, H * 0.56, '#ffd700', `${Math.min(11, W * 0.02)}px "Press Start 2P", monospace`, 'center');
+      }
+
+      // Draw Yes/No buttons
+      if (revealTimer > 240 && noMessageTimer <= 0) {
+        const btnY = H * 0.62;
+        const yesW = Math.floor(70 * yesBtnScale);
+        const yesH = Math.floor(28 * yesBtnScale);
+        const noW = Math.floor(70 * noBtnScale);
+        const noH = Math.floor(28 * noBtnScale);
+        const gap = 30;
+
+        // Yes button
+        const yesBtnX = W / 2 - yesW - gap / 2;
+        const yesBtnY = btnY - yesH / 2;
+        ctx.fillStyle = '#4aff4a';
+        ctx.fillRect(yesBtnX, yesBtnY, yesW, yesH);
+        ctx.fillStyle = '#2d8a2d';
+        ctx.fillRect(yesBtnX + 2, yesBtnY + 2, yesW - 4, yesH - 4);
+        ctx.fillStyle = '#3dcc3d';
+        ctx.fillRect(yesBtnX + 4, yesBtnY + 4, yesW - 8, yesH - 8);
+        const yesFontSize = Math.max(7, Math.min(12, 10 * yesBtnScale));
+        drawText('Yes 💝', yesBtnX + yesW / 2, yesBtnY + yesH / 2 + 4, '#fff', `${yesFontSize}px "Press Start 2P", monospace`, 'center');
+
+        // No button
+        const noBtnX = W / 2 + gap / 2;
+        const noBtnY = btnY - noH / 2;
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(noBtnX, noBtnY, noW, noH);
+        ctx.fillStyle = '#aa2222';
+        ctx.fillRect(noBtnX + 2, noBtnY + 2, noW - 4, noH - 4);
+        ctx.fillStyle = '#cc3333';
+        ctx.fillRect(noBtnX + 4, noBtnY + 4, noW - 8, noH - 8);
+        const noFontSize = Math.max(5, Math.min(12, 10 * noBtnScale));
+        drawText('No', noBtnX + noW / 2, noBtnY + noH / 2 + 4, '#fff', `${noFontSize}px "Press Start 2P", monospace`, 'center');
+
+        // Store button rects for hit detection (in game coords)
+        window._yesBtnRect = { x: yesBtnX, y: yesBtnY, w: yesW, h: yesH };
+        window._noBtnRect = { x: noBtnX, y: noBtnY, w: noW, h: noH };
+      }
+    }
+
+    // Celebration state
+    if (valentineState === 'celebration') {
+      celebrationTimer++;
+      ctx.globalAlpha = 1;
+      drawText(`Hearts collected: ${score}/32`, W / 2, H * 0.55, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
+      drawText('I knew it! 💝', W / 2, H * 0.62, '#ffd700', `${Math.min(14, W * 0.025)}px "Press Start 2P", monospace`, 'center');
+      drawText('Happy Valentine\'s Day, Cutie!', W / 2, H * 0.70, '#ff69b4', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
+      drawText('🌸 I love you! 🌸', W / 2, H * 0.77, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
+      drawText('- Your Pogi ♥', W / 2, H * 0.84, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
     }
 
     ctx.textAlign = 'left';
@@ -1880,6 +1952,13 @@ function drawReveal() {
   if (revealTimer > 110 && revealTimer % 5 === 0) {
     spawnConfetti(Math.random() * W + cameraX, -20);
     spawnConfetti(Math.random() * W + cameraX, -20);
+  }
+  // Extra celebration confetti + hearts
+  if (valentineState === 'celebration' && celebrationTimer % 2 === 0) {
+    spawnConfetti(Math.random() * W + cameraX, -20);
+    spawnConfetti(Math.random() * W + cameraX, -20);
+    spawnConfetti(Math.random() * W + cameraX, -20);
+    if (celebrationTimer % 6 === 0) spawnPetal(Math.random() * W + cameraX, -10);
   }
 
   // Draw confetti particles (manually since we're not in normal render)
@@ -2120,12 +2199,50 @@ canvas.addEventListener('touchstart', e => {
   if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
   else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
   else if (gameState === 'gameover' && gameOverTimer > 60) { resetGame(); gameState = 'playing'; startBGMusic(); }
-});
-canvas.addEventListener('click', () => {
+}, { passive: true });
+canvas.addEventListener('click', (e) => {
   if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
   else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
   else if (gameState === 'gameover' && gameOverTimer > 60) { resetGame(); gameState = 'playing'; startBGMusic(); }
+  else if (gameState === 'reveal' && valentineState === 'asking') { handleRevealClick(e); }
 });
+
+function handleRevealClick(e) {
+  if (!window._yesBtnRect || !window._noBtnRect) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = GAME_W / rect.width;
+  const scaleY = GAME_H / rect.height;
+  const gx = (e.clientX - rect.left) * scaleX;
+  const gy = (e.clientY - rect.top) * scaleY;
+
+  const yes = window._yesBtnRect;
+  const no = window._noBtnRect;
+
+  if (gx >= yes.x && gx <= yes.x + yes.w && gy >= yes.y && gy <= yes.y + yes.h) {
+    // YES!
+    valentineState = 'celebration';
+    celebrationTimer = 0;
+    playRevealSound();
+    for (let i = 0; i < 30; i++) spawnConfetti(Math.random() * W + cameraX, Math.random() * H * 0.3);
+  } else if (gx >= no.x && gx <= no.x + no.w && gy >= no.y && gy <= no.y + no.h) {
+    // NO - show message and loop back
+    noMessageText = noMessages[noCount % noMessages.length];
+    noMessageTimer = 90;
+    noCount++;
+    noBtnScale = Math.max(0.3, noBtnScale * 0.78);
+    yesBtnScale = Math.min(2.0, yesBtnScale * 1.15);
+    if (audioCtx) { const t = audioCtx.currentTime; playNote(200, 0.15, t, 'square', 0.06); }
+  }
+}
+
+canvas.addEventListener('touchstart', (e) => {
+  if (gameState === 'reveal' && valentineState === 'asking') {
+    const touch = e.touches[0];
+    handleRevealClick({ clientX: touch.clientX, clientY: touch.clientY });
+    e.preventDefault();
+    return;
+  }
+}, { passive: false });
 
 // --- LOADING SEQUENCE ---
 function fakeLoading() {
