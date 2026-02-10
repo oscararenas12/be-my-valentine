@@ -128,6 +128,10 @@ let hasKey = false;
 let keyMessageTimer = 0;
 let doorMessage = '';
 let doorMessageTimer = 0;
+let cheatPromptActive = false;
+let cheatInput = '';
+let cheatMessageTimer = 0;
+let cheatMessageText = '';
 
 // Lives system
 let lives = 3;
@@ -290,12 +294,14 @@ function drawText(text, x, y, color, font, align) {
 // --- SPRITE GENERATORS ---
 function generatePlayerSprite(frame) {
   const p = [];
-  const hair = '#8B4513';       // warm brown hair
-  const hairHighlight = '#A0522D';
+  const hair = '#1a1a1a';       // black hair
+  const hairHighlight = '#333333';
   const skin = '#ffcc99';
-  const dress = '#ff69b4';
-  const dressLight = '#ff85c2';
-  const shoe = '#ff1493';
+  const top = '#ff69b4';        // cute pink top
+  const topLight = '#ff85c2';
+  const pants = '#2c2c54';      // dark jeans/pants
+  const pantsLight = '#3a3a6a';
+  const shoe = '#fff';          // white sneakers
   const eye = '#2d1b00';
   const blush = '#ff9999';
   const bow = '#ff0044';
@@ -352,12 +358,11 @@ function generatePlayerSprite(frame) {
   for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
   p.push({x: 3, y: 4, c: '#ff6666'});
 
-  // Dress body (flared/A-line shape)
-  for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: dress});
-  for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: dress});
-  // Flared skirt bottom
-  for (let x = -1; x <= 7; x++) p.push({x, y: 7, c: dress});
-  for (let x = -1; x <= 7; x++) p.push({x, y: 8, c: dressLight});
+  // Pink top (fitted, not a dress)
+  for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: top});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: top});
+  // Top hem detail
+  for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: topLight});
 
   // Arms
   const armOff = frame % 2 === 0 ? 0 : -1;
@@ -366,16 +371,18 @@ function generatePlayerSprite(frame) {
   p.push({x: 8, y: 5 + armOff, c: skin});
   p.push({x: 8, y: 6 + armOff, c: skin});
 
+  // Dark pants/jeans
+  for (let x = 1; x <= 5; x++) p.push({x, y: 8, c: pants});
   // Legs + shoes
   const legFrame = Math.floor(frame / 4) % 2;
   if (legFrame === 0) {
-    p.push({x: 2, y: 9, c: skin});
-    p.push({x: 4, y: 9, c: skin});
+    p.push({x: 2, y: 9, c: pantsLight});
+    p.push({x: 4, y: 9, c: pantsLight});
     p.push({x: 2, y: 10, c: shoe});
     p.push({x: 4, y: 10, c: shoe});
   } else {
-    p.push({x: 1, y: 9, c: skin});
-    p.push({x: 5, y: 9, c: skin});
+    p.push({x: 1, y: 9, c: pantsLight});
+    p.push({x: 5, y: 9, c: pantsLight});
     p.push({x: 1, y: 10, c: shoe});
     p.push({x: 5, y: 10, c: shoe});
   }
@@ -1896,7 +1903,7 @@ function drawReveal() {
 
 // --- MAIN GAME LOOP ---
 function update() {
-  if (gameState === 'playing') {
+  if (gameState === 'playing' && !cheatPromptActive) {
     updatePlayer();
     updateMovingPlatforms();
     updateEnemies();
@@ -1973,6 +1980,44 @@ function render() {
     }
     drawParticles();
     drawHUD();
+
+    // Cheat prompt overlay
+    if (cheatPromptActive) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, W, H);
+      const bx = W/2 - 100, by = H/2 - 28, bw = 200, bh = 56;
+      ctx.fillStyle = '#1a0a1a';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = '#ff69b4';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.strokeStyle = '#ff1493';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx+3, by+3, bw-6, bh-6);
+      drawText('PASSWORD:', W/2, by + 16, '#ff69b4', '8px "Press Start 2P", monospace', 'center');
+      // Input field
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(bx+12, by+24, bw-24, 18);
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx+12, by+24, bw-24, 18);
+      const displayText = cheatInput + ((Math.floor(frameCount/15) % 2 === 0) ? '_' : '');
+      drawText(displayText, bx+16, by+38, '#0f0', '7px "Press Start 2P", monospace', 'left');
+      ctx.textAlign = 'left';
+    }
+
+    // Cheat message
+    if (cheatMessageTimer > 0) {
+      cheatMessageTimer--;
+      const a = Math.min(1, cheatMessageTimer / 20);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(W/2 - 110, H/2 - 16, 220, 32);
+      const clr = cheatMessageText.includes('🔑') ? '#4aff4a' : '#ff6666';
+      drawText(cheatMessageText, W/2, H/2 + 4, clr, '9px "Press Start 2P", monospace', 'center');
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
   }
 
   frameCount++;
@@ -2006,7 +2051,41 @@ function resize() {
 
 // --- INPUT HANDLERS ---
 document.addEventListener('keydown', e => {
+  if (cheatPromptActive) {
+    e.preventDefault();
+    if (e.key === 'Escape') {
+      cheatPromptActive = false;
+      cheatInput = '';
+    } else if (e.key === 'Enter') {
+      if (cheatInput === 'cutieiscutie') {
+        score = REQUIRED_HEARTS;
+        hasKey = true;
+        const doorX = LEVEL_WIDTH - 320;
+        player.x = doorX - player.w - 5;
+        player.y = GROUND_Y - player.h;
+        player.vy = 0;
+        player.vx = 0;
+        cheatMessageText = '🔑 Key obtained!';
+        cheatMessageTimer = 120;
+      } else {
+        cheatMessageText = 'Access denied';
+        cheatMessageTimer = 60;
+      }
+      cheatPromptActive = false;
+      cheatInput = '';
+    } else if (e.key === 'Backspace') {
+      cheatInput = cheatInput.slice(0, -1);
+    } else if (e.key.length === 1) {
+      cheatInput += e.key;
+    }
+    return;
+  }
   keys[e.key] = true;
+  if (gameState === 'playing' && (e.key === 'p' || e.key === 'P')) {
+    cheatPromptActive = true;
+    cheatInput = '';
+    return;
+  }
   if (gameState === 'menu') {
     initAudio();
     gameState = 'intro';
