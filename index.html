@@ -109,18 +109,25 @@ const ctx = canvas.getContext('2d');
 const GRAVITY = 0.6;
 const JUMP_FORCE = -12;
 const MOVE_SPEED = 4;
-const GROUND_Y_RATIO = 0.75;
+const GAME_W = 800;  // fixed internal resolution
+const GAME_H = 450;
+const GROUND_Y = Math.floor(GAME_H * 0.75); // fixed ground Y
 const LEVEL_WIDTH = 8000;
-const PIXEL = 4; // pixel art scale
+const PIXEL = 4;
+const REQUIRED_HEARTS = 20; // hearts needed for key
 
-let W, H, GROUND_Y;
-let gameState = 'loading'; // loading, menu, intro, playing, reveal
+let W = GAME_W, H = GAME_H;
+let gameState = 'loading';
 let cameraX = 0;
 let score = 0;
 let totalHearts = 0;
 let frameCount = 0;
 let musicStarted = false;
 let isMobile = false;
+let hasKey = false;
+let keyMessageTimer = 0;
+let doorMessage = '';
+let doorMessageTimer = 0;
 
 // --- INPUT ---
 const keys = {};
@@ -232,6 +239,22 @@ function drawPixelChar(px, py, pixels, scale = 3) {
       scale, scale
     );
   });
+}
+
+// --- TEXT HELPER (readable text with dark outline) ---
+function drawText(text, x, y, color, font, align) {
+  if (font) ctx.font = font;
+  if (align) ctx.textAlign = align;
+  ctx.fillStyle = '#000';
+  // Draw dark outline in 8 directions
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      ctx.fillText(text, x + dx, y + dy);
+    }
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
 }
 
 // --- SPRITE GENERATORS ---
@@ -445,28 +468,28 @@ function resetGame() {
     trees.push({ x: 200 + i * 400 + Math.random() * 100, y: GROUND_Y });
   }
 
-  // Floating platforms
+  // Floating platforms (all reachable: max jump ~120px, keep platforms ≤100px above ground)
   const platPositions = [
     { x: 400, y: GROUND_Y - 80 },
-    { x: 600, y: GROUND_Y - 130 },
-    { x: 900, y: GROUND_Y - 90 },
-    { x: 1200, y: GROUND_Y - 120 },
+    { x: 600, y: GROUND_Y - 95 },
+    { x: 900, y: GROUND_Y - 75 },
+    { x: 1200, y: GROUND_Y - 90 },
     { x: 1500, y: GROUND_Y - 70 },
-    { x: 1800, y: GROUND_Y - 140 },
-    { x: 2100, y: GROUND_Y - 100 },
+    { x: 1800, y: GROUND_Y - 100 },
+    { x: 2100, y: GROUND_Y - 85 },
     { x: 2500, y: GROUND_Y - 80 },
-    { x: 2800, y: GROUND_Y - 130 },
-    { x: 3100, y: GROUND_Y - 90 },
-    { x: 3500, y: GROUND_Y - 110 },
+    { x: 2800, y: GROUND_Y - 95 },
+    { x: 3100, y: GROUND_Y - 75 },
+    { x: 3500, y: GROUND_Y - 90 },
     { x: 3900, y: GROUND_Y - 70 },
-    { x: 4200, y: GROUND_Y - 140 },
-    { x: 4600, y: GROUND_Y - 90 },
-    { x: 5000, y: GROUND_Y - 120 },
-    { x: 5400, y: GROUND_Y - 80 },
-    { x: 5800, y: GROUND_Y - 100 },
-    { x: 6200, y: GROUND_Y - 130 },
+    { x: 4200, y: GROUND_Y - 100 },
+    { x: 4600, y: GROUND_Y - 80 },
+    { x: 5000, y: GROUND_Y - 90 },
+    { x: 5400, y: GROUND_Y - 75 },
+    { x: 5800, y: GROUND_Y - 85 },
+    { x: 6200, y: GROUND_Y - 95 },
     { x: 6600, y: GROUND_Y - 70 },
-    { x: 7000, y: GROUND_Y - 110 },
+    { x: 7000, y: GROUND_Y - 85 },
   ];
   platPositions.forEach(pp => {
     platforms.push({ x: pp.x, y: pp.y, w: 100, h: 16, color: '#8B5E3C' });
@@ -481,7 +504,8 @@ function resetGame() {
   ];
   heartPositions.forEach((hx, i) => {
     const onPlat = platPositions.find(p => Math.abs(p.x + 50 - hx) < 60);
-    const hy = onPlat ? onPlat.y - 35 : GROUND_Y - 50 - Math.sin(i) * 20;
+    // Hearts on platforms sit just above; ground hearts stay within jump reach
+    const hy = onPlat ? onPlat.y - 30 : GROUND_Y - 40 - Math.abs(Math.sin(i)) * 15;
     collectibles.push({ x: hx, y: hy, w: 21, h: 18, collected: false, type: 'heart' });
   });
   totalHearts = collectibles.length;
@@ -513,7 +537,13 @@ function resetGame() {
     easterEggs.push({ x: e.x, y: GROUND_Y - 45, text: e.text, desc: e.desc, w: 60, h: 45 });
   });
 
-  // Oscar at the end
+  // Door before Oscar
+  hasKey = false;
+  keyMessageTimer = 0;
+  doorMessage = '';
+  doorMessageTimer = 0;
+
+  // Oscar at the end (behind the door)
   oscarNPC = { x: LEVEL_WIDTH - 200, y: GROUND_Y - 30 };
 }
 
@@ -595,13 +625,35 @@ function updatePlayer() {
     if (player.x + player.w > c.x && player.x < c.x + c.w &&
         player.y + player.h > c.y && player.y < c.y + c.h) {
       c.collected = true;
-      if (c.type === 'heart') score++;
+      if (c.type === 'heart') {
+        score++;
+        if (score >= REQUIRED_HEARTS && !hasKey) {
+          hasKey = true;
+          keyMessageTimer = 180; // show key message for 3 seconds
+        }
+      }
       playCollectSound();
       for (let i = 0; i < 6; i++) spawnPetal(c.x + c.w/2, c.y + c.h/2);
     }
   });
 
-  // Check if reached Oscar
+  // Door position (just before Oscar)
+  const doorX = LEVEL_WIDTH - 320;
+  // Check if reached the door area
+  if (player.x + player.w > doorX && player.x < doorX + 40 && gameState === 'playing') {
+    if (hasKey) {
+      // Door opens, proceed to Oscar
+      player.x = doorX + 50; // push past door
+    } else {
+      // Blocked! Need more hearts
+      player.x = doorX - player.w;
+      player.vx = 0;
+      doorMessage = `Need more hearts! ❤️ ${score}/${REQUIRED_HEARTS}`;
+      doorMessageTimer = 120;
+    }
+  }
+
+  // Check if reached Oscar (past the door)
   if (player.x + player.w > oscarNPC.x - 30 && gameState === 'playing') {
     gameState = 'reveal';
     revealTimer = 0;
@@ -727,11 +779,11 @@ function drawEasterEggs() {
     ctx.strokeRect(sx, e.y - 10, 58, 28);
 
     // Text
-    ctx.fillStyle = '#2d1b00';
     ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillStyle = '#2d1b00';
     ctx.fillText(e.text, sx + 3, e.y + 3);
-    ctx.fillStyle = '#ff69b4';
     ctx.font = '5px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ff69b4';
     ctx.fillText(e.desc, sx + 3, e.y + 12);
   });
 }
@@ -750,10 +802,7 @@ function drawPlayer() {
   });
 
   // Name tag
-  ctx.fillStyle = '#fff';
-  ctx.font = '7px "Press Start 2P", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('Cutie', Math.floor(player.x - cameraX + player.w / 2), Math.floor(player.y - 8));
+  drawText('Cutie', Math.floor(player.x - cameraX + player.w / 2), Math.floor(player.y - 8), '#fff', '7px "Press Start 2P", monospace', 'center');
   ctx.textAlign = 'left';
 }
 
@@ -773,10 +822,7 @@ function drawOscar() {
   });
 
   // Name tag
-  ctx.fillStyle = '#fff';
-  ctx.font = '7px "Press Start 2P", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('Pogi', sx + 10, Math.floor(oscarNPC.y - 20));
+  drawText('Pogi', sx + 10, Math.floor(oscarNPC.y - 20), '#fff', '7px "Press Start 2P", monospace', 'center');
   ctx.textAlign = 'left';
 }
 
@@ -820,13 +866,50 @@ function drawParticles() {
   confettiParticles = confettiParticles.filter(p => p.life > 0);
 }
 
+function drawDoor() {
+  const doorX = LEVEL_WIDTH - 320;
+  const sx = Math.floor(doorX - cameraX);
+  if (sx > W + 50 || sx < -50) return;
+
+  // Door frame
+  ctx.fillStyle = '#5a3a1a';
+  ctx.fillRect(sx, GROUND_Y - 60, 36, 60);
+  // Door
+  ctx.fillStyle = hasKey ? '#4a8a3c' : '#8B4513';
+  ctx.fillRect(sx + 3, GROUND_Y - 57, 30, 57);
+  // Lock/handle
+  if (!hasKey) {
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(sx + 22, GROUND_Y - 32, 6, 6);
+    // Lock icon
+    ctx.fillStyle = '#888';
+    ctx.fillRect(sx + 20, GROUND_Y - 38, 10, 4);
+  } else {
+    ctx.fillStyle = '#4aff4a';
+    ctx.fillRect(sx + 22, GROUND_Y - 32, 6, 6);
+  }
+  // Label
+  drawText(hasKey ? '🔓' : '🔒', sx + 18, GROUND_Y - 65, '#fff', '10px "Press Start 2P", monospace', 'center');
+  ctx.textAlign = 'left';
+}
+
 function drawHUD() {
   ctx.globalAlpha = 1;
+
+  // Dark HUD background
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(8, 6, 140, 28);
+  ctx.fillRect(W - 142, 6, 134, 32);
+
   // Heart counter
-  drawHeart(cameraX + 15, 15, 2, '#ff0000');
-  ctx.fillStyle = '#fff';
-  ctx.font = '10px "Press Start 2P", monospace';
-  ctx.fillText(`${score}/${totalHearts}`, 42, 28);
+  drawHeart(cameraX + 15, 12, 2, '#ff0000');
+  const heartColor = score >= REQUIRED_HEARTS ? '#4aff4a' : '#fff';
+  drawText(`❤️ ${score}/${totalHearts}`, 42, 26, heartColor, '10px "Press Start 2P", monospace');
+
+  // Key indicator
+  if (hasKey) {
+    drawText('🔑', 120, 26, '#ffd700', '10px "Press Start 2P", monospace');
+  }
 
   // Progress bar
   const progress = player.x / LEVEL_WIDTH;
@@ -835,9 +918,31 @@ function drawHUD() {
   ctx.fillRect(W - barW - 15, 12, barW, 10);
   ctx.fillStyle = '#ff69b4';
   ctx.fillRect(W - barW - 15, 12, barW * progress, 10);
-  ctx.fillStyle = '#fff';
-  ctx.font = '6px "Press Start 2P", monospace';
-  ctx.fillText('♥ → Pogi', W - barW - 10, 32);
+  drawText('♥ → Pogi', W - barW - 10, 32, '#fff', '6px "Press Start 2P", monospace');
+
+  // Key obtained message
+  if (keyMessageTimer > 0) {
+    keyMessageTimer--;
+    const alpha = Math.min(1, keyMessageTimer / 30);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(W/2 - 160, H/2 - 25, 320, 50);
+    drawText('You got the key! 🔑', W/2, H/2 + 5, '#ffd700', '12px "Press Start 2P", monospace', 'center');
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Door blocked message
+  if (doorMessageTimer > 0) {
+    doorMessageTimer--;
+    const alpha = Math.min(1, doorMessageTimer / 20);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(W/2 - 180, H/2 - 25, 360, 50);
+    drawText(doorMessage, W/2, H/2 + 5, '#ff6666', '9px "Press Start 2P", monospace', 'center');
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
 }
 
 // --- MENU SCREEN ---
@@ -862,14 +967,8 @@ function drawMenu() {
 
   // Title
   const titleY = H * 0.2;
-  ctx.fillStyle = '#ff69b4';
-  ctx.font = `${Math.min(24, W * 0.04)}px "Press Start 2P", monospace`;
-  ctx.textAlign = 'center';
-  ctx.fillText('💝 VALENTINE QUEST 💝', W / 2, titleY);
-
-  ctx.fillStyle = '#FFB7C5';
-  ctx.font = `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`;
-  ctx.fillText('A Game by Pogi for Cutie', W / 2, titleY + 30);
+  drawText('💝 VALENTINE QUEST 💝', W / 2, titleY, '#ff69b4', `${Math.min(24, W * 0.04)}px "Press Start 2P", monospace`, 'center');
+  drawText('A Game by Pogi for Cutie', W / 2, titleY + 30, '#FFB7C5', `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`, 'center');
 
   // Animated hearts
   for (let i = 0; i < 5; i++) {
@@ -880,32 +979,25 @@ function drawMenu() {
 
   // Instructions
   const instY = H * 0.55;
-  ctx.fillStyle = '#fff';
-  ctx.font = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
-  ctx.fillText('🌸 Help Cutie collect hearts! 🌸', W / 2, instY);
-  ctx.fillText('Run to Pogi at the end!', W / 2, instY + 25);
+  const instFont = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
+  drawText('🌸 Help Cutie collect hearts! 🌸', W / 2, instY, '#fff', instFont, 'center');
+  drawText('Collect 20+ hearts for the key! 🔑', W / 2, instY + 25, '#fff', instFont, 'center');
 
   if (isMobile) {
-    ctx.fillText('Use buttons to move & jump', W / 2, instY + 55);
+    drawText('Use buttons to move & jump', W / 2, instY + 55, '#fff', instFont, 'center');
   } else {
-    ctx.fillText('Arrow Keys / WASD to move', W / 2, instY + 50);
-    ctx.fillText('Space / Up to jump', W / 2, instY + 70);
+    drawText('Arrow Keys / WASD to move', W / 2, instY + 50, '#fff', instFont, 'center');
+    drawText('Space / Up to jump', W / 2, instY + 70, '#fff', instFont, 'center');
   }
 
   // Blinking start text
   if (Math.sin(frameCount * 0.08) > 0) {
-    ctx.fillStyle = '#ffd700';
-    ctx.font = `${Math.min(14, W * 0.025)}px "Press Start 2P", monospace`;
-    ctx.fillText('♥ PRESS START ♥', W / 2, H * 0.82);
-    ctx.fillStyle = '#ff69b4';
-    ctx.font = `${Math.min(9, W * 0.015)}px "Press Start 2P", monospace`;
-    ctx.fillText('(Tap or press any key)', W / 2, H * 0.82 + 22);
+    drawText('♥ PRESS START ♥', W / 2, H * 0.82, '#ffd700', `${Math.min(14, W * 0.025)}px "Press Start 2P", monospace`, 'center');
+    drawText('(Tap or press any key)', W / 2, H * 0.82 + 22, '#ff69b4', `${Math.min(9, W * 0.015)}px "Press Start 2P", monospace`, 'center');
   }
 
   // Player 2 reference
-  ctx.fillStyle = '#ff99cc';
-  ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
-  ctx.fillText('♥ Player 2 has joined ♥', W / 2, H * 0.92);
+  drawText('♥ Player 2 has joined ♥', W / 2, H * 0.92, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
 
   ctx.textAlign = 'left';
 }
@@ -939,10 +1031,12 @@ function drawIntro() {
 
   for (let i = 0; i < linesShown; i++) {
     const alpha = Math.min(1, (introTimer - i * 40) / 20);
-    ctx.fillStyle = i === 3 || i === 4 ? `rgba(255,105,180,${alpha})` :
-                    i === introLines.length - 1 ? `rgba(255,215,0,${alpha})` :
-                    `rgba(255,255,255,${alpha})`;
-    ctx.fillText(introLines[i], W / 2, startY + i * lineH * 1.5);
+    const color = i === 3 || i === 4 ? `rgba(255,105,180,${alpha})` :
+                  i === introLines.length - 1 ? `rgba(255,215,0,${alpha})` :
+                  `rgba(255,255,255,${alpha})`;
+    ctx.globalAlpha = alpha;
+    drawText(introLines[i], W / 2, startY + i * lineH * 1.5, color);
+    ctx.globalAlpha = 1;
   }
 
   if (introTimer > introLines.length * 40 + 60) {
@@ -991,28 +1085,21 @@ function drawReveal() {
     // Main text
     if (revealTimer > 120) {
       const textAlpha = Math.min(1, (revealTimer - 120) / 40);
-      ctx.textAlign = 'center';
+      ctx.globalAlpha = textAlpha;
 
-      ctx.fillStyle = `rgba(255,105,180,${textAlpha})`;
-      ctx.font = `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`;
-      ctx.fillText('Be My Valentine,', W / 2, H * 0.45);
-
-      ctx.fillStyle = `rgba(255,215,0,${textAlpha})`;
-      ctx.font = `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`;
-      ctx.fillText('Cutie? 💝', W / 2, H * 0.55);
+      drawText('Be My Valentine,', W / 2, H * 0.45, '#ff69b4', `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`, 'center');
+      drawText('Cutie? 💝', W / 2, H * 0.55, '#ffd700', `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`, 'center');
 
       // Score
       if (revealTimer > 180) {
-        ctx.fillStyle = `rgba(255,255,255,${Math.min(1, (revealTimer - 180) / 40)})`;
-        ctx.font = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
-        ctx.fillText(`Hearts collected: ${score}/${totalHearts}`, W / 2, H * 0.67);
-        ctx.fillText('🌸 I love you! 🌸', W / 2, H * 0.73);
-        ctx.fillStyle = `rgba(255,153,204,${Math.min(1, (revealTimer - 180) / 40)})`;
-        ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
-        ctx.fillText('- Your Pogi ♥', W / 2, H * 0.8);
+        ctx.globalAlpha = Math.min(1, (revealTimer - 180) / 40);
+        drawText(`Hearts collected: ${score}/${totalHearts}`, W / 2, H * 0.67, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
+        drawText('🌸 I love you! 🌸', W / 2, H * 0.73, '#fff', null, 'center');
+        drawText('- Your Pogi ♥', W / 2, H * 0.8, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
       }
 
       ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1057,6 +1144,7 @@ function render() {
     drawPlatforms();
     drawCollectibles();
     drawEasterEggs();
+    drawDoor();
     drawOscar();
     drawPlayer();
     drawParticles();
@@ -1074,15 +1162,24 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// --- RESIZE ---
+// --- RESIZE (fixed internal resolution, CSS scaling) ---
 function resize() {
-  W = window.innerWidth;
-  H = window.innerHeight;
-  canvas.width = W;
-  canvas.height = H;
-  GROUND_Y = Math.floor(H * GROUND_Y_RATIO);
+  // Internal resolution stays fixed
+  canvas.width = GAME_W;
+  canvas.height = GAME_H;
 
-  isMobile = ('ontouchstart' in window) || window.innerWidth < 768;
+  // Scale canvas via CSS to fill window while maintaining aspect ratio
+  const windowW = window.innerWidth;
+  const windowH = window.innerHeight;
+  const scaleX = windowW / GAME_W;
+  const scaleY = windowH / GAME_H;
+  const scale = Math.min(scaleX, scaleY);
+
+  canvas.style.width = Math.floor(GAME_W * scale) + 'px';
+  canvas.style.height = Math.floor(GAME_H * scale) + 'px';
+  canvas.style.marginTop = Math.floor((windowH - GAME_H * scale) / 2) + 'px';
+
+  isMobile = ('ontouchstart' in window) || windowW < 768;
   document.getElementById('mobileControls').style.display = isMobile ? 'block' : 'none';
 }
 
