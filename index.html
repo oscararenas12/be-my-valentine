@@ -280,47 +280,95 @@ function drawText(text, x, y, color, font, align) {
 // --- SPRITE GENERATORS ---
 function generatePlayerSprite(frame) {
   const p = [];
-  const hair = '#4a2728';
+  const hair = '#8B4513';       // warm brown hair
+  const hairHighlight = '#A0522D';
   const skin = '#ffcc99';
   const dress = '#ff69b4';
+  const dressLight = '#ff85c2';
   const shoe = '#ff1493';
   const eye = '#2d1b00';
   const blush = '#ff9999';
+  const bow = '#ff0044';
 
-  for (let x = 1; x <= 5; x++) p.push({x, y: 0, c: hair});
+  // Long hair top + ponytail flowing right
+  for (let x = 1; x <= 5; x++) p.push({x, y: -1, c: hair});  // hair top row
+  for (let x = 0; x <= 6; x++) p.push({x, y: 0, c: hair});
   for (let x = 0; x <= 6; x++) p.push({x, y: 1, c: hair});
-  p.push({x: 0, y: 2, c: hair});
-  p.push({x: 6, y: 2, c: hair});
+  // Hair sides framing face (long hair hanging down)
+  p.push({x: -1, y: 0, c: hair});
+  p.push({x: -1, y: 1, c: hair});
+  p.push({x: -1, y: 2, c: hair});
+  p.push({x: -1, y: 3, c: hair});
+  p.push({x: -1, y: 4, c: hair});
+  p.push({x: 7, y: 0, c: hair});
+  p.push({x: 7, y: 1, c: hair});
+  p.push({x: 7, y: 2, c: hair});
+  p.push({x: 7, y: 3, c: hair});
+  p.push({x: 7, y: 4, c: hair});
+  // Hair highlight
+  p.push({x: 2, y: 0, c: hairHighlight});
+  p.push({x: 4, y: 0, c: hairHighlight});
 
-  for (let x = 1; x <= 5; x++) p.push({x, y: 2, c: skin});
+  // Ponytail (flows to the right)
+  p.push({x: 8, y: 0, c: hair});
+  p.push({x: 9, y: 0, c: hair});
+  p.push({x: 8, y: 1, c: hair});
+  p.push({x: 9, y: 1, c: hair});
+  p.push({x: 10, y: 1, c: hair});
+  p.push({x: 9, y: 2, c: hair});
+  p.push({x: 10, y: 2, c: hair});
+  p.push({x: 10, y: 3, c: hair});
+  const ponytailSway = Math.sin(frame * 0.3) > 0 ? 1 : 0;
+  p.push({x: 10 + ponytailSway, y: 4, c: hair});
+
+  // Hair bow on top
+  p.push({x: 2, y: -1, c: bow});
+  p.push({x: 3, y: -2, c: bow});
+  p.push({x: 4, y: -1, c: bow});
+  p.push({x: 3, y: -1, c: '#ff3366'});
+
+  // Face
+  for (let x = 0; x <= 6; x++) p.push({x, y: 2, c: skin});
   for (let x = 0; x <= 6; x++) p.push({x, y: 3, c: skin});
   p.push({x: 2, y: 3, c: eye});
   p.push({x: 4, y: 3, c: eye});
+  // Eyelashes
+  p.push({x: 2, y: 2, c: '#1a0a00'});
+  p.push({x: 4, y: 2, c: '#1a0a00'});
+  // Blush
   p.push({x: 1, y: 3, c: blush});
   p.push({x: 5, y: 3, c: blush});
+  // Mouth
   for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
   p.push({x: 3, y: 4, c: '#ff6666'});
 
+  // Dress body (flared/A-line shape)
   for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: dress});
   for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: dress});
-  for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: dress});
+  // Flared skirt bottom
+  for (let x = -1; x <= 7; x++) p.push({x, y: 7, c: dress});
+  for (let x = -1; x <= 7; x++) p.push({x, y: 8, c: dressLight});
 
+  // Arms
   const armOff = frame % 2 === 0 ? 0 : -1;
-  p.push({x: -1, y: 5 + armOff, c: skin});
-  p.push({x: 7, y: 5 + armOff, c: skin});
+  p.push({x: -2, y: 5 + armOff, c: skin});
+  p.push({x: -2, y: 6 + armOff, c: skin});
+  p.push({x: 8, y: 5 + armOff, c: skin});
+  p.push({x: 8, y: 6 + armOff, c: skin});
 
+  // Legs + shoes
   const legFrame = Math.floor(frame / 4) % 2;
   if (legFrame === 0) {
-    p.push({x: 2, y: 8, c: shoe});
-    p.push({x: 4, y: 8, c: shoe});
+    p.push({x: 2, y: 9, c: skin});
+    p.push({x: 4, y: 9, c: skin});
+    p.push({x: 2, y: 10, c: shoe});
+    p.push({x: 4, y: 10, c: shoe});
   } else {
-    p.push({x: 1, y: 8, c: shoe});
-    p.push({x: 5, y: 8, c: shoe});
+    p.push({x: 1, y: 9, c: skin});
+    p.push({x: 5, y: 9, c: skin});
+    p.push({x: 1, y: 10, c: shoe});
+    p.push({x: 5, y: 10, c: shoe});
   }
-
-  p.push({x: 6, y: 0, c: '#ff1493'});
-  p.push({x: 7, y: 0, c: '#ff1493'});
-  p.push({x: 6, y: 1, c: '#ff1493'});
 
   return p;
 }
@@ -492,7 +540,7 @@ function resetGame() {
 
   player = {
     x: 100, y: 0, vx: 0, vy: 0,
-    w: 7 * 3, h: 9 * 3,
+    w: 7 * 3, h: 11 * 3,
     onGround: false,
     facing: 1,
     frame: 0
@@ -718,13 +766,11 @@ function resetGame() {
     { x: 1400, text: '⚓ Raft', desc: 'We survived!' },
     { x: 2000, text: '🎮 Stardew Valley', desc: 'Our farm 💚' },
     { x: 2600, text: '⛏️ Minecraft', desc: 'Building together' },
-    { x: 3200, text: '🎓 CSULB', desc: 'Java class ☕' },
-    { x: 3800, text: '💬 Discord', desc: 'Where it started' },
-    { x: 4400, text: '🫘 Fall Guys', desc: 'WOOO!' },
-    { x: 5000, text: '🕹️ Round 1', desc: 'Date night!' },
-    { x: 5600, text: '🏖️ Beach', desc: 'Sunsets 🌅' },
-    { x: 6200, text: '🎬 Movies', desc: 'Popcorn time' },
-    { x: 6800, text: '💕 ~3 Years', desc: 'And counting...' },
+    { x: 3200, text: '🫘 Fall Guys', desc: 'WOOO!' },
+    { x: 3800, text: '🕹️ Round 1', desc: 'Date night!' },
+    { x: 4400, text: '🏖️ Beach', desc: 'Sunsets 🌅' },
+    { x: 5000, text: '🎬 Movies', desc: 'Popcorn time' },
+    { x: 5600, text: '💕 ~3 Years', desc: 'And counting...' },
   ];
   eggData.forEach(e => {
     easterEggs.push({ x: e.x, y: GROUND_Y - 55, text: e.text, desc: e.desc, w: 160, h: 70 });
@@ -1472,7 +1518,7 @@ function drawMenu() {
 
   const instY = H * 0.55;
   const instFont = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
-  drawText('🌸 Help Cutie collect hearts! 🌸', W / 2, instY, '#fff', instFont, 'center');
+  drawText('🌸 Collect all 32 hearts! 🌸', W / 2, instY, '#fff', instFont, 'center');
   drawText('Collect all 32 hearts for the key! 🔑', W / 2, instY + 25, '#fff', instFont, 'center');
 
   if (isMobile) {
@@ -1501,7 +1547,7 @@ const introLines = [
   '',
   'Almost 3 years and counting!',
   '',
-  'Help Cutie run to the door!',
+  'Run to the door!',
   'Collect ALL 32 hearts!',
   '',
   '♥ GET READY ♥'
