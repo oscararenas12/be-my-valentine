@@ -109,12 +109,12 @@ const ctx = canvas.getContext('2d');
 const GRAVITY = 0.6;
 const JUMP_FORCE = -12;
 const MOVE_SPEED = 4;
-const GAME_W = 400;  // fixed internal resolution (zoomed in)
+const GAME_W = 400;
 const GAME_H = 225;
-const GROUND_Y = Math.floor(GAME_H * 0.72); // fixed ground Y
+const GROUND_Y = Math.floor(GAME_H * 0.72);
 const LEVEL_WIDTH = 8000;
 const PIXEL = 4;
-const REQUIRED_HEARTS = 20; // hearts needed for key
+const REQUIRED_HEARTS = 32;
 
 let W = GAME_W, H = GAME_H;
 let gameState = 'loading';
@@ -129,11 +129,19 @@ let keyMessageTimer = 0;
 let doorMessage = '';
 let doorMessageTimer = 0;
 
+// Cart ride state
+let cartRideActive = false;
+let cartRideX = 0;
+let cartRideTimer = 0;
+const CART_RIDE_DURATION = 600; // 10 seconds at 60fps
+const CART_RIDE_LENGTH = 2000;
+let cartRideBlossoms = [];
+
 // --- INPUT ---
 const keys = {};
 const mobileInput = { left: false, right: false, jump: false };
 
-// --- AUDIO ENGINE (Web Audio API chiptune) ---
+// --- AUDIO ENGINE ---
 let audioCtx = null;
 let musicPlaying = false;
 
@@ -178,11 +186,27 @@ function playRevealSound() {
   notes.forEach((n, i) => playNote(n, 0.3, t + i * 0.2, 'square', 0.1));
 }
 
+function playDoorUnlockSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  playNote(440, 0.15, t, 'square', 0.1);
+  playNote(554, 0.15, t + 0.12, 'square', 0.1);
+  playNote(659, 0.15, t + 0.24, 'square', 0.1);
+  playNote(880, 0.3, t + 0.36, 'square', 0.12);
+}
+
+function playCartSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // Cheerful rolling melody
+  const notes = [392, 440, 494, 523, 587, 659, 698, 784];
+  notes.forEach((n, i) => playNote(n, 0.4, t + i * 0.35, 'triangle', 0.06));
+}
+
 let bgMusicInterval = null;
 function startBGMusic() {
   if (!audioCtx || musicPlaying) return;
   musicPlaying = true;
-  // Simple looping chiptune melody
   const melody = [
     392, 440, 523, 587, 523, 440, 392, 330,
     294, 330, 392, 440, 392, 330, 294, 262,
@@ -206,7 +230,6 @@ function startBGMusic() {
       const idx = (noteIdx + i) % melody.length;
       playNote(melody[idx], noteLen * 0.8, t + i * noteLen, 'square', 0.04);
       playNote(bass[idx], noteLen * 0.9, t + i * noteLen, 'triangle', 0.05);
-      // hi-hat
       if (i % 2 === 0) {
         playNote(800 + Math.random() * 200, 0.05, t + i * noteLen, 'sawtooth', 0.01);
       }
@@ -230,7 +253,6 @@ function drawPixelRect(x, y, w, h, color) {
 }
 
 function drawPixelChar(px, py, pixels, scale = 3) {
-  // pixels is array of { x, y, c } or a 2D color map
   pixels.forEach(p => {
     ctx.fillStyle = p.c;
     ctx.fillRect(
@@ -241,12 +263,10 @@ function drawPixelChar(px, py, pixels, scale = 3) {
   });
 }
 
-// --- TEXT HELPER (readable text with dark outline) ---
 function drawText(text, x, y, color, font, align) {
   if (font) ctx.font = font;
   if (align) ctx.textAlign = align;
   ctx.fillStyle = '#000';
-  // Draw dark outline in 8 directions
   for (let dx = -2; dx <= 2; dx++) {
     for (let dy = -2; dy <= 2; dy++) {
       if (dx === 0 && dy === 0) continue;
@@ -259,45 +279,36 @@ function drawText(text, x, y, color, font, align) {
 
 // --- SPRITE GENERATORS ---
 function generatePlayerSprite(frame) {
-  // Cute girl character - Christine / "Cutie"
   const p = [];
-  const hair = '#4a2728'; // dark brown hair
+  const hair = '#4a2728';
   const skin = '#ffcc99';
-  const dress = '#ff69b4'; // pink dress
+  const dress = '#ff69b4';
   const shoe = '#ff1493';
   const eye = '#2d1b00';
   const blush = '#ff9999';
 
-  // Hair
   for (let x = 1; x <= 5; x++) p.push({x, y: 0, c: hair});
   for (let x = 0; x <= 6; x++) p.push({x, y: 1, c: hair});
   p.push({x: 0, y: 2, c: hair});
   p.push({x: 6, y: 2, c: hair});
 
-  // Face
   for (let x = 1; x <= 5; x++) p.push({x, y: 2, c: skin});
   for (let x = 0; x <= 6; x++) p.push({x, y: 3, c: skin});
-  // Eyes
   p.push({x: 2, y: 3, c: eye});
   p.push({x: 4, y: 3, c: eye});
-  // Blush
   p.push({x: 1, y: 3, c: blush});
   p.push({x: 5, y: 3, c: blush});
-  // Mouth
   for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
   p.push({x: 3, y: 4, c: '#ff6666'});
 
-  // Dress body
   for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: dress});
   for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: dress});
   for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: dress});
 
-  // Arms (animated)
   const armOff = frame % 2 === 0 ? 0 : -1;
   p.push({x: -1, y: 5 + armOff, c: skin});
   p.push({x: 7, y: 5 + armOff, c: skin});
 
-  // Legs (animated)
   const legFrame = Math.floor(frame / 4) % 2;
   if (legFrame === 0) {
     p.push({x: 2, y: 8, c: shoe});
@@ -307,7 +318,6 @@ function generatePlayerSprite(frame) {
     p.push({x: 5, y: 8, c: shoe});
   }
 
-  // Hair bow
   p.push({x: 6, y: 0, c: '#ff1493'});
   p.push({x: 7, y: 0, c: '#ff1493'});
   p.push({x: 6, y: 1, c: '#ff1493'});
@@ -316,7 +326,6 @@ function generatePlayerSprite(frame) {
 }
 
 function generateOscarSprite() {
-  // Oscar / "Pogi" - at the end holding flowers
   const p = [];
   const hair = '#1a1a1a';
   const skin = '#e8b878';
@@ -325,46 +334,38 @@ function generateOscarSprite() {
   const shoe = '#333';
   const eye = '#1a1a1a';
 
-  // Hair
   for (let x = 1; x <= 5; x++) p.push({x, y: 0, c: hair});
   for (let x = 0; x <= 6; x++) p.push({x, y: 1, c: hair});
 
-  // Face
   for (let x = 0; x <= 6; x++) p.push({x, y: 2, c: skin});
   for (let x = 0; x <= 6; x++) p.push({x, y: 3, c: skin});
   p.push({x: 2, y: 3, c: eye});
   p.push({x: 4, y: 3, c: eye});
   for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
-  p.push({x: 3, y: 4, c: '#cc4444'}); // smile
+  p.push({x: 3, y: 4, c: '#cc4444'});
 
-  // Shirt
   for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: shirt});
   for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: shirt});
   for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: shirt});
 
-  // Arms holding flowers
   p.push({x: -1, y: 5, c: skin});
   p.push({x: -2, y: 4, c: skin});
   p.push({x: 7, y: 5, c: skin});
   p.push({x: 8, y: 4, c: skin});
 
-  // Flowers in hand
   p.push({x: -2, y: 3, c: '#ff69b4'});
   p.push({x: -3, y: 2, c: '#ff1493'});
   p.push({x: -2, y: 2, c: '#ff69b4'});
   p.push({x: -1, y: 2, c: '#ff1493'});
-  p.push({x: -3, y: 3, c: '#228b22'}); // stem
+  p.push({x: -3, y: 3, c: '#228b22'});
   p.push({x: -2, y: 3, c: '#ff69b4'});
 
-  // Pants
   p.push({x: 1, y: 8, c: pants}); p.push({x: 2, y: 8, c: pants});
   p.push({x: 4, y: 8, c: pants}); p.push({x: 5, y: 8, c: pants});
 
-  // Shoes
   p.push({x: 1, y: 9, c: shoe}); p.push({x: 2, y: 9, c: shoe});
   p.push({x: 4, y: 9, c: shoe}); p.push({x: 5, y: 9, c: shoe});
 
-  // Heart above head
   const hb = (Math.sin(frameCount * 0.1) > 0) ? 1 : 0;
   p.push({x: 2, y: -2 - hb, c: '#ff0000'});
   p.push({x: 4, y: -2 - hb, c: '#ff0000'});
@@ -384,7 +385,6 @@ function drawHeart(x, y, size, color = '#ff0000') {
   const sx = Math.floor(x - cameraX);
   const sy = Math.floor(y);
   ctx.fillStyle = color;
-  // Simple pixel heart
   ctx.fillRect(sx + s, sy, s, s);
   ctx.fillRect(sx + 2*s, sy, s, s);
   ctx.fillRect(sx + 4*s, sy, s, s);
@@ -402,41 +402,30 @@ function drawTree(x, y) {
   const sx = Math.floor(x - cameraX);
   const sy = Math.floor(y);
 
-  // Main trunk - thicker, taller
   ctx.fillStyle = '#6B4226';
   ctx.fillRect(sx + 22, sy - 90, 16, 90);
-  // Trunk highlights
   ctx.fillStyle = '#8B5E3C';
   ctx.fillRect(sx + 26, sy - 85, 4, 80);
-  // Trunk dark side
   ctx.fillStyle = '#4a2e18';
   ctx.fillRect(sx + 22, sy - 90, 3, 90);
 
-  // Branches
   ctx.fillStyle = '#6B4226';
-  // Left branch
   ctx.fillRect(sx + 10, sy - 85, 14, 6);
   ctx.fillRect(sx + 4, sy - 95, 10, 6);
-  // Right branch
   ctx.fillRect(sx + 36, sy - 80, 14, 6);
   ctx.fillRect(sx + 44, sy - 90, 10, 6);
-  // Upper branch
   ctx.fillRect(sx + 18, sy - 100, 6, 12);
 
-  // Canopy clusters - large, round, Minecraft cherry blossom style
   const blossomColors = ['#FFB7C5', '#FF85A2', '#FFC0CB', '#FFD1DC', '#FFAEC9', '#E8A0BF', '#D4A0C0'];
   const whiteAccent = ['#fff', '#fff5f5', '#ffe4e8'];
 
-  // Draw canopy as overlapping circles of pixel clusters
   const canopyClusters = [
-    // Main canopy - big round shape
     {cx: 30, cy: -110, r: 28},
     {cx: 10, cy: -100, r: 22},
     {cx: 50, cy: -100, r: 22},
     {cx: 20, cy: -120, r: 20},
     {cx: 40, cy: -120, r: 20},
     {cx: 30, cy: -130, r: 18},
-    // Outer clusters
     {cx: -5, cy: -90, r: 16},
     {cx: 65, cy: -88, r: 16},
     {cx: 0, cy: -110, r: 14},
@@ -445,19 +434,16 @@ function drawTree(x, y) {
   ];
 
   canopyClusters.forEach((cl, ci) => {
-    // Fill cluster with pixel blocks
     for (let px = -cl.r; px <= cl.r; px += 4) {
       for (let py = -cl.r; py <= cl.r; py += 4) {
         if (px * px + py * py <= cl.r * cl.r) {
           const dist = Math.sqrt(px * px + py * py) / cl.r;
-          // Pick color based on position for variety
           const hash = (Math.abs(px * 7 + py * 13 + ci * 31)) % 10;
           if (hash < 2) {
             ctx.fillStyle = whiteAccent[hash % whiteAccent.length];
           } else {
             ctx.fillStyle = blossomColors[(hash + ci) % blossomColors.length];
           }
-          // Slightly darker at edges
           if (dist > 0.75) {
             ctx.fillStyle = '#E8A0BF';
           }
@@ -467,7 +453,6 @@ function drawTree(x, y) {
     }
   });
 
-  // Falling petals near tree
   const petalSeed = Math.floor(x) % 100;
   for (let i = 0; i < 5; i++) {
     const px = sx + 5 + ((petalSeed + i * 37 + Math.floor(frameCount * 0.3)) % 60);
@@ -479,6 +464,9 @@ function drawTree(x, y) {
     ctx.globalAlpha = 1;
   }
 }
+
+// --- MOVING PLATFORMS ---
+let movingPlatforms = [];
 
 // --- GAME OBJECTS ---
 let player = null;
@@ -499,74 +487,223 @@ function resetGame() {
   cameraX = 0;
   score = 0;
   frameCount = 0;
+  cartRideActive = false;
+  cartRideTimer = 0;
 
   player = {
     x: 100, y: 0, vx: 0, vy: 0,
-    w: 7 * 3, h: 9 * 3, // sprite size * scale
+    w: 7 * 3, h: 9 * 3,
     onGround: false,
     facing: 1,
     frame: 0
   };
   player.y = GROUND_Y - player.h;
 
-  // Generate level
   platforms = [];
   collectibles = [];
   obstacles = [];
   trees = [];
   easterEggs = [];
+  movingPlatforms = [];
 
-  // Ground
-  platforms.push({ x: 0, y: GROUND_Y, w: LEVEL_WIDTH, h: 200, color: '#3d2b1f' });
+  // Ground segments with GAPS to create challenge
+  // Gap positions - player must jump across
+  const gaps = [
+    { start: 1100, end: 1180 },
+    { start: 2200, end: 2300 },
+    { start: 3300, end: 3420 },
+    { start: 4500, end: 4640 },
+    { start: 5500, end: 5640 },
+    { start: 6500, end: 6620 },
+  ];
 
-  // Cherry blossom trees in background
+  // Build ground with gaps
+  let gx = 0;
+  gaps.forEach(gap => {
+    if (gx < gap.start) {
+      platforms.push({ x: gx, y: GROUND_Y, w: gap.start - gx, h: 200, color: '#3d2b1f', isGround: true });
+    }
+    gx = gap.end;
+  });
+  platforms.push({ x: gx, y: GROUND_Y, w: LEVEL_WIDTH - gx, h: 200, color: '#3d2b1f', isGround: true });
+
+  // Cherry blossom trees
   for (let i = 0; i < 20; i++) {
     trees.push({ x: 200 + i * 400 + Math.random() * 100, y: GROUND_Y });
   }
 
-  // Floating platforms (all reachable: max jump ~120px, keep platforms ≤100px above ground)
-  const platPositions = [
-    { x: 400, y: GROUND_Y - 60 },
-    { x: 600, y: GROUND_Y - 70 },
-    { x: 900, y: GROUND_Y - 55 },
-    { x: 1200, y: GROUND_Y - 65 },
-    { x: 1500, y: GROUND_Y - 50 },
-    { x: 1800, y: GROUND_Y - 75 },
-    { x: 2100, y: GROUND_Y - 60 },
-    { x: 2500, y: GROUND_Y - 55 },
-    { x: 2800, y: GROUND_Y - 70 },
-    { x: 3100, y: GROUND_Y - 50 },
-    { x: 3500, y: GROUND_Y - 65 },
-    { x: 3900, y: GROUND_Y - 50 },
-    { x: 4200, y: GROUND_Y - 75 },
-    { x: 4600, y: GROUND_Y - 55 },
-    { x: 5000, y: GROUND_Y - 65 },
-    { x: 5400, y: GROUND_Y - 50 },
-    { x: 5800, y: GROUND_Y - 60 },
-    { x: 6200, y: GROUND_Y - 70 },
-    { x: 6600, y: GROUND_Y - 50 },
-    { x: 7000, y: GROUND_Y - 60 },
+  // ====== CHALLENGING PLATFORM LAYOUT ======
+  // Section 1 (0-1200): Warmup with some elevated platforms
+  const staticPlats = [
+    // Warmup platforms
+    { x: 350, y: GROUND_Y - 55, w: 70 },
+    { x: 550, y: GROUND_Y - 70, w: 60 },
+    { x: 720, y: GROUND_Y - 90, w: 55 },
+    { x: 880, y: GROUND_Y - 65, w: 65 },
+
+    // Over gap 1 (1100-1180) - stepping stones
+    { x: 1080, y: GROUND_Y - 40, w: 45 },
+    { x: 1135, y: GROUND_Y - 70, w: 40 },
+    { x: 1175, y: GROUND_Y - 40, w: 45 },
+
+    // Section 2 (1200-2200): Staircase and precision
+    { x: 1300, y: GROUND_Y - 50, w: 55 },
+    { x: 1420, y: GROUND_Y - 80, w: 50 },
+    { x: 1540, y: GROUND_Y - 100, w: 45 }, // high!
+    { x: 1660, y: GROUND_Y - 75, w: 50 },
+    { x: 1780, y: GROUND_Y - 95, w: 45 },
+    { x: 1900, y: GROUND_Y - 60, w: 55 },
+    { x: 2050, y: GROUND_Y - 85, w: 50 },
+
+    // Over gap 2 (2200-2300) - tricky
+    { x: 2190, y: GROUND_Y - 50, w: 40 },
+    { x: 2250, y: GROUND_Y - 80, w: 35 },
+
+    // Section 3 (2300-3300): Vertical challenge
+    { x: 2400, y: GROUND_Y - 55, w: 50 },
+    { x: 2530, y: GROUND_Y - 90, w: 45 },
+    { x: 2650, y: GROUND_Y - 55, w: 50 },
+    { x: 2780, y: GROUND_Y - 100, w: 40 }, // high narrow
+    { x: 2900, y: GROUND_Y - 65, w: 55 },
+    { x: 3050, y: GROUND_Y - 85, w: 45 },
+    { x: 3180, y: GROUND_Y - 50, w: 60 },
+
+    // Over gap 3 (3300-3420)
+    { x: 3280, y: GROUND_Y - 45, w: 40 },
+    { x: 3340, y: GROUND_Y - 75, w: 35 },
+    { x: 3400, y: GROUND_Y - 45, w: 40 },
+
+    // Section 4 (3420-4500): Zigzag madness
+    { x: 3520, y: GROUND_Y - 60, w: 50 },
+    { x: 3640, y: GROUND_Y - 95, w: 40 },
+    { x: 3760, y: GROUND_Y - 55, w: 50 },
+    { x: 3880, y: GROUND_Y - 90, w: 40 },
+    { x: 4000, y: GROUND_Y - 60, w: 55 },
+    { x: 4130, y: GROUND_Y - 100, w: 38 }, // tiny high platform
+    { x: 4260, y: GROUND_Y - 65, w: 50 },
+    { x: 4380, y: GROUND_Y - 85, w: 45 },
+
+    // Over gap 4 (4500-4640) - longest gap, needs moving platform
+    { x: 4480, y: GROUND_Y - 40, w: 40 },
+
+    // Section 5 (4640-5500): Precision platforming
+    { x: 4720, y: GROUND_Y - 55, w: 45 },
+    { x: 4840, y: GROUND_Y - 85, w: 40 },
+    { x: 4960, y: GROUND_Y - 100, w: 35 }, // tiny!
+    { x: 5070, y: GROUND_Y - 70, w: 50 },
+    { x: 5200, y: GROUND_Y - 95, w: 38 },
+    { x: 5330, y: GROUND_Y - 60, w: 50 },
+
+    // Over gap 5 (5500-5640)
+    { x: 5480, y: GROUND_Y - 45, w: 40 },
+    { x: 5560, y: GROUND_Y - 70, w: 35 },
+    { x: 5630, y: GROUND_Y - 40, w: 40 },
+
+    // Section 6 (5640-6500): Final gauntlet
+    { x: 5740, y: GROUND_Y - 65, w: 45 },
+    { x: 5860, y: GROUND_Y - 95, w: 38 },
+    { x: 5980, y: GROUND_Y - 55, w: 50 },
+    { x: 6100, y: GROUND_Y - 90, w: 40 },
+    { x: 6220, y: GROUND_Y - 70, w: 45 },
+    { x: 6350, y: GROUND_Y - 100, w: 35 }, // brutal tiny high
+
+    // Over gap 6 (6500-6620)
+    { x: 6490, y: GROUND_Y - 50, w: 38 },
+    { x: 6570, y: GROUND_Y - 75, w: 35 },
+
+    // Final stretch to door
+    { x: 6700, y: GROUND_Y - 60, w: 50 },
+    { x: 6850, y: GROUND_Y - 85, w: 45 },
+    { x: 7000, y: GROUND_Y - 55, w: 55 },
+    { x: 7150, y: GROUND_Y - 75, w: 50 },
+    { x: 7350, y: GROUND_Y - 60, w: 60 },
   ];
-  platPositions.forEach(pp => {
-    platforms.push({ x: pp.x, y: pp.y, w: 100, h: 16, color: '#8B5E3C' });
+
+  staticPlats.forEach(pp => {
+    platforms.push({ x: pp.x, y: pp.y, w: pp.w, h: 16, color: '#8B5E3C' });
   });
 
-  // Heart collectibles
-  const heartPositions = [
-    300, 500, 650, 850, 1050, 1250, 1450, 1650, 1850, 2050,
-    2300, 2550, 2750, 2950, 3150, 3350, 3600, 3850, 4050,
-    4300, 4550, 4750, 5050, 5300, 5500, 5700, 5950, 6150,
-    6400, 6650, 6850, 7100
+  // MOVING PLATFORMS - add real challenge
+  movingPlatforms = [
+    // Over gap 1 - moving platform for safety
+    { x: 1120, y: GROUND_Y - 30, w: 50, h: 12, minX: 1090, maxX: 1170, speed: 0.8, color: '#d4a0c0' },
+    // Section 2 - vertical mover
+    { x: 1700, y: GROUND_Y - 50, w: 50, h: 12, minY: GROUND_Y - 100, maxY: GROUND_Y - 40, speed: 0.6, vertical: true, color: '#d4a0c0' },
+    // Over gap 4 - essential moving platform (long gap)
+    { x: 4520, y: GROUND_Y - 25, w: 55, h: 12, minX: 4500, maxX: 4630, speed: 0.7, color: '#d4a0c0' },
+    // Section 5 - vertical challenge
+    { x: 5100, y: GROUND_Y - 60, w: 45, h: 12, minY: GROUND_Y - 100, maxY: GROUND_Y - 45, speed: 0.8, vertical: true, color: '#d4a0c0' },
+    // Over gap 5 - helper
+    { x: 5530, y: GROUND_Y - 30, w: 45, h: 12, minX: 5500, maxX: 5630, speed: 0.9, color: '#d4a0c0' },
+    // Section 6 - fast horizontal
+    { x: 6000, y: GROUND_Y - 75, w: 45, h: 12, minX: 5960, maxX: 6100, speed: 1.0, color: '#d4a0c0' },
+    // Over gap 6
+    { x: 6530, y: GROUND_Y - 35, w: 50, h: 12, minX: 6500, maxX: 6610, speed: 0.85, color: '#d4a0c0' },
   ];
-  heartPositions.forEach((hx, i) => {
-    const onPlat = platPositions.find(p => Math.abs(p.x + 50 - hx) < 60);
-    // Hearts on platforms sit just above; ground hearts stay within jump reach
-    const hy = onPlat ? onPlat.y - 30 : GROUND_Y - 40 - Math.abs(Math.sin(i)) * 15;
-    collectibles.push({ x: hx, y: hy, w: 21, h: 18, collected: false, type: 'heart' });
+  // Initialize moving platform positions
+  movingPlatforms.forEach(mp => {
+    mp.origX = mp.x;
+    mp.origY = mp.y;
+    mp.phase = Math.random() * Math.PI * 2;
   });
-  totalHearts = collectibles.length;
 
-  // Petal collectibles
+  // ====== HEART PLACEMENT - ALL 32, CHALLENGING SPOTS ======
+  const heartPlacements = [
+    // Section 1 - warmup (5 hearts)
+    { x: 360, y: GROUND_Y - 85 },      // on platform 1, must jump
+    { x: 560, y: GROUND_Y - 100 },     // on platform 2, high
+    { x: 730, y: GROUND_Y - 120 },     // above platform 3, jump from it
+    { x: 895, y: GROUND_Y - 95 },      // on platform 4
+    { x: 1140, y: GROUND_Y - 100 },    // above gap 1 stepping stone - scary
+
+    // Section 2 - staircase (6 hearts)
+    { x: 1310, y: GROUND_Y - 80 },     // on stair plat
+    { x: 1430, y: GROUND_Y - 110 },    // high on stair
+    { x: 1550, y: GROUND_Y - 130 },    // highest point! Must nail the jump
+    { x: 1710, y: GROUND_Y - 85 },     // near moving platform - tricky timing
+    { x: 1910, y: GROUND_Y - 90 },     // on platform
+    { x: 2060, y: GROUND_Y - 115 },    // high above platform
+
+    // Gap 2 area (2 hearts)
+    { x: 2200, y: GROUND_Y - 80 },     // right at gap edge
+    { x: 2260, y: GROUND_Y - 110 },    // above tiny gap platform!
+
+    // Section 3 - vertical (5 hearts)
+    { x: 2410, y: GROUND_Y - 85 },
+    { x: 2540, y: GROUND_Y - 120 },    // way up high
+    { x: 2790, y: GROUND_Y - 130 },    // on the narrow high platform
+    { x: 2910, y: GROUND_Y - 95 },
+    { x: 3060, y: GROUND_Y - 115 },    // high above
+
+    // Gap 3 area (2 hearts)
+    { x: 3290, y: GROUND_Y - 75 },
+    { x: 3350, y: GROUND_Y - 105 },    // above gap!
+
+    // Section 4 - zigzag (5 hearts)
+    { x: 3530, y: GROUND_Y - 90 },
+    { x: 3650, y: GROUND_Y - 125 },    // high zigzag
+    { x: 3890, y: GROUND_Y - 120 },    // another high one
+    { x: 4140, y: GROUND_Y - 130 },    // on tiny high platform!
+    { x: 4390, y: GROUND_Y - 115 },
+
+    // Gap 4 + Section 5 (4 hearts)
+    { x: 4560, y: GROUND_Y - 55 },     // must get while on moving platform!
+    { x: 4850, y: GROUND_Y - 115 },
+    { x: 4970, y: GROUND_Y - 130 },    // tiny platform, way up
+    { x: 5210, y: GROUND_Y - 125 },
+
+    // Gap 5 + Section 6 (3 hearts)
+    { x: 5570, y: GROUND_Y - 100 },    // above gap!
+    { x: 5870, y: GROUND_Y - 125 },
+    { x: 6360, y: GROUND_Y - 130 },    // final gauntlet, tiny high platform
+  ];
+
+  heartPlacements.forEach(hp => {
+    collectibles.push({ x: hp.x, y: hp.y, w: 21, h: 18, collected: false, type: 'heart' });
+  });
+  totalHearts = heartPlacements.length; // Should be 32
+
+  // Petal collectibles (decorative, not counted)
   for (let i = 0; i < 15; i++) {
     collectibles.push({
       x: 200 + i * 500 + Math.random() * 200,
@@ -575,7 +712,7 @@ function resetGame() {
     });
   }
 
-  // Easter egg obstacles/signs
+  // Easter egg signs
   const eggData = [
     { x: 700, text: '🍜 Rakkan Ramen', desc: 'Our spot!' },
     { x: 1400, text: '⚓ Raft', desc: 'We survived!' },
@@ -593,14 +730,26 @@ function resetGame() {
     easterEggs.push({ x: e.x, y: GROUND_Y - 55, text: e.text, desc: e.desc, w: 160, h: 70 });
   });
 
-  // Door before Oscar
   hasKey = false;
   keyMessageTimer = 0;
   doorMessage = '';
   doorMessageTimer = 0;
 
-  // Oscar at the end (behind the door)
-  oscarNPC = { x: LEVEL_WIDTH - 200, y: GROUND_Y - 30 };
+  // Oscar is NOT visible during gameplay - only after cart ride
+  oscarNPC = { x: LEVEL_WIDTH - 200, y: GROUND_Y - 30, visible: false };
+
+  // Init cart ride blossoms
+  cartRideBlossoms = [];
+  for (let i = 0; i < 40; i++) {
+    cartRideBlossoms.push({
+      x: Math.random() * CART_RIDE_LENGTH,
+      y: Math.random() * GAME_H * 0.6,
+      size: Math.random() * 4 + 2,
+      color: ['#FFB7C5', '#FF69B4', '#FFC0CB', '#fff', '#FFAEC9'][Math.floor(Math.random() * 5)],
+      speed: Math.random() * 0.5 + 0.2,
+      wobble: Math.random() * Math.PI * 2
+    });
+  }
 }
 
 // --- PARTICLES ---
@@ -634,9 +783,20 @@ function spawnConfetti(x, y) {
   }
 }
 
+// --- UPDATE MOVING PLATFORMS ---
+function updateMovingPlatforms() {
+  movingPlatforms.forEach(mp => {
+    mp.phase += 0.02;
+    if (mp.vertical) {
+      mp.y = mp.minY + (mp.maxY - mp.minY) * (0.5 + 0.5 * Math.sin(mp.phase));
+    } else {
+      mp.x = mp.minX + (mp.maxX - mp.minX) * (0.5 + 0.5 * Math.sin(mp.phase));
+    }
+  });
+}
+
 // --- GAME LOGIC ---
 function updatePlayer() {
-  // Input
   const left = keys['ArrowLeft'] || keys['a'] || keys['A'] || mobileInput.left;
   const right = keys['ArrowRight'] || keys['d'] || keys['D'] || mobileInput.right;
   const jump = keys['ArrowUp'] || keys['w'] || keys['W'] || keys[' '] || mobileInput.jump;
@@ -651,12 +811,11 @@ function updatePlayer() {
     playJumpSound();
   }
 
-  // Physics
   player.vy += GRAVITY;
   player.x += player.vx;
   player.y += player.vy;
 
-  // Platform collision
+  // Platform collision (static)
   player.onGround = false;
   platforms.forEach(plat => {
     if (player.x + player.w > plat.x && player.x < plat.x + plat.w &&
@@ -668,11 +827,58 @@ function updatePlayer() {
     }
   });
 
+  // Moving platform collision
+  movingPlatforms.forEach(mp => {
+    if (player.x + player.w > mp.x && player.x < mp.x + mp.w &&
+        player.y + player.h > mp.y && player.y + player.h < mp.y + mp.h + 10 &&
+        player.vy >= 0) {
+      player.y = mp.y - player.h;
+      player.vy = 0;
+      player.onGround = true;
+      // Move player with horizontal moving platform
+      if (!mp.vertical) {
+        const newX = mp.minX + (mp.maxX - mp.minX) * (0.5 + 0.5 * Math.sin(mp.phase + 0.02));
+        player.x += (newX - mp.x) * 0.5;
+      }
+    }
+  });
+
+  // Fall off screen - respawn at last safe ground
+  if (player.y > GAME_H + 50) {
+    // Find nearest ground before current position
+    let respawnX = 100;
+    platforms.forEach(p => {
+      if (p.isGround && p.x < player.x && p.x + p.w > player.x) {
+        respawnX = player.x;
+      } else if (p.isGround && p.x + p.w <= player.x) {
+        respawnX = p.x + p.w - 30;
+      }
+    });
+    // Clamp to a ground segment
+    let onGround = false;
+    platforms.forEach(p => {
+      if (p.isGround && respawnX >= p.x && respawnX <= p.x + p.w) onGround = true;
+    });
+    if (!onGround) {
+      // Find previous ground segment end
+      let bestX = 100;
+      platforms.forEach(p => {
+        if (p.isGround && p.x + p.w < player.x) {
+          bestX = p.x + p.w - 40;
+        }
+      });
+      respawnX = bestX;
+    }
+    player.x = respawnX;
+    player.y = GROUND_Y - player.h - 20;
+    player.vy = 0;
+    player.vx = 0;
+  }
+
   // Keep in bounds
   if (player.x < 0) player.x = 0;
   if (player.x > LEVEL_WIDTH - player.w) player.x = LEVEL_WIDTH - player.w;
 
-  // Animate
   if (Math.abs(player.vx) > 0.5) player.frame++;
 
   // Collectibles
@@ -685,7 +891,7 @@ function updatePlayer() {
         score++;
         if (score >= REQUIRED_HEARTS && !hasKey) {
           hasKey = true;
-          keyMessageTimer = 180; // show key message for 3 seconds
+          keyMessageTimer = 180;
         }
       }
       playCollectSound();
@@ -693,28 +899,23 @@ function updatePlayer() {
     }
   });
 
-  // Door position (just before Oscar)
+  // Door position
   const doorX = LEVEL_WIDTH - 320;
-  // Check if reached the door area
   if (player.x + player.w > doorX && player.x < doorX + 40 && gameState === 'playing') {
     if (hasKey) {
-      // Door opens, proceed to Oscar
-      player.x = doorX + 50; // push past door
+      // Door opens - start cart ride!
+      gameState = 'cartride';
+      cartRideTimer = 0;
+      cartRideX = 0;
+      stopBGMusic();
+      playDoorUnlockSound();
+      setTimeout(() => playCartSound(), 500);
     } else {
-      // Blocked! Need more hearts
       player.x = doorX - player.w;
       player.vx = 0;
-      doorMessage = `Need more hearts! ❤️ ${score}/${REQUIRED_HEARTS}`;
+      doorMessage = `You need all 32 hearts! ❤️ ${score}/32`;
       doorMessageTimer = 120;
     }
-  }
-
-  // Check if reached Oscar (past the door)
-  if (player.x + player.w > oscarNPC.x - 30 && gameState === 'playing') {
-    gameState = 'reveal';
-    revealTimer = 0;
-    stopBGMusic();
-    playRevealSound();
   }
 
   // Camera
@@ -724,9 +925,197 @@ function updatePlayer() {
   if (cameraX > LEVEL_WIDTH - W) cameraX = LEVEL_WIDTH - W;
 }
 
+// --- CART RIDE ---
+function updateCartRide() {
+  cartRideTimer++;
+  cartRideX = (cartRideTimer / CART_RIDE_DURATION) * CART_RIDE_LENGTH;
+
+  // At the end of the ride, transition to reveal
+  if (cartRideTimer >= CART_RIDE_DURATION) {
+    gameState = 'reveal';
+    revealTimer = 0;
+    playRevealSound();
+  }
+}
+
+function drawCartRide() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Sky gradient - transition from tunnel to scenic
+  const progress = cartRideTimer / CART_RIDE_DURATION;
+
+  if (progress < 0.3) {
+    // Tunnel section - dark with lights
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#1a0a1a');
+    grad.addColorStop(1, '#2d1b2e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Tunnel walls
+    ctx.fillStyle = '#3a2a3a';
+    ctx.fillRect(0, 0, W, 30);
+    ctx.fillRect(0, H - 50, W, 50);
+
+    // Tunnel lights passing by
+    for (let i = 0; i < 8; i++) {
+      const lx = ((i * 120 - cartRideX * 2) % (W + 120)) - 60;
+      ctx.fillStyle = '#ff69b4';
+      ctx.fillRect(lx, 20, 4, 10);
+      ctx.fillStyle = 'rgba(255,105,180,0.2)';
+      ctx.beginPath();
+      ctx.arc(lx + 2, 35, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Tunnel bricks
+    ctx.fillStyle = '#4a3a4a';
+    for (let bx = 0; bx < W; bx += 24) {
+      const offset = (Math.floor(cartRideX * 2) % 24);
+      ctx.fillRect(bx - offset, 0, 22, 14);
+      ctx.fillRect(bx - offset + 12, 16, 22, 14);
+      ctx.fillRect(bx - offset, H - 50, 22, 14);
+      ctx.fillRect(bx - offset + 12, H - 36, 22, 14);
+    }
+  } else {
+    // Scenic outdoor section with cherry blossoms!
+    const outdoorAlpha = Math.min(1, (progress - 0.3) / 0.1);
+
+    // Sky
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#5c2d6e');
+    grad.addColorStop(0.4, '#ff69b4');
+    grad.addColorStop(1, '#ffb7c5');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Background hills
+    ctx.fillStyle = '#4a8a3c';
+    for (let hx = 0; hx < W + 100; hx += 80) {
+      const offset = (cartRideX * 0.3) % 80;
+      ctx.beginPath();
+      ctx.arc(hx - offset, H - 40, 60, Math.PI, 0);
+      ctx.fill();
+    }
+
+    // Cherry blossom trees in background
+    for (let i = 0; i < 6; i++) {
+      const tx = ((i * 150 - cartRideX * 0.5) % (W + 200)) - 50;
+      // Simple tree
+      ctx.fillStyle = '#6B4226';
+      ctx.fillRect(tx + 10, H - 100, 8, 60);
+      // Canopy
+      ctx.fillStyle = '#FFB7C5';
+      ctx.beginPath();
+      ctx.arc(tx + 14, H - 110, 25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FF85A2';
+      ctx.beginPath();
+      ctx.arc(tx + 8, H - 105, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFC0CB';
+      ctx.beginPath();
+      ctx.arc(tx + 22, H - 108, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Falling cherry blossom petals
+    cartRideBlossoms.forEach(b => {
+      const bx = ((b.x - cartRideX * 0.8) % W + W) % W;
+      const by = b.y + Math.sin(frameCount * 0.03 + b.wobble) * 8;
+      ctx.fillStyle = b.color;
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(bx, by, b.size, b.size * 0.6);
+      ctx.globalAlpha = 1;
+    });
+
+    // Ground
+    ctx.fillStyle = '#5a8a3c';
+    ctx.fillRect(0, H - 45, W, 5);
+    ctx.fillStyle = '#3d2b1f';
+    ctx.fillRect(0, H - 40, W, 40);
+  }
+
+  // Rail tracks
+  ctx.fillStyle = '#666';
+  ctx.fillRect(0, H - 52, W, 3);
+  ctx.fillRect(0, H - 46, W, 3);
+  // Ties
+  ctx.fillStyle = '#8B5E3C';
+  for (let tx = 0; tx < W; tx += 20) {
+    const offset = (Math.floor(cartRideX * 2) % 20);
+    ctx.fillRect(tx - offset, H - 54, 12, 10);
+  }
+
+  // Draw minecart with player
+  const cartScreenX = W * 0.4;
+  const cartY = H - 75;
+  const bounce = Math.sin(frameCount * 0.3) * 2;
+
+  // Cart body
+  ctx.fillStyle = '#666';
+  ctx.fillRect(cartScreenX - 20, cartY + bounce + 10, 50, 20);
+  // Cart front/back
+  ctx.fillStyle = '#888';
+  ctx.fillRect(cartScreenX - 22, cartY + bounce + 5, 4, 28);
+  ctx.fillRect(cartScreenX + 28, cartY + bounce + 5, 4, 28);
+  // Cart interior
+  ctx.fillStyle = '#555';
+  ctx.fillRect(cartScreenX - 18, cartY + bounce + 12, 46, 16);
+  // Wheels
+  ctx.fillStyle = '#444';
+  ctx.fillRect(cartScreenX - 15, cartY + bounce + 30, 8, 6);
+  ctx.fillRect(cartScreenX + 17, cartY + bounce + 30, 8, 6);
+
+  // Player in cart
+  const sprite = generatePlayerSprite(Math.floor(frameCount / 8));
+  sprite.forEach(p => {
+    ctx.fillStyle = p.c;
+    ctx.fillRect(
+      Math.floor(cartScreenX - 2 + p.x * 2.5),
+      Math.floor(cartY + bounce - 15 + p.y * 2.5),
+      2.5, 2.5
+    );
+  });
+
+  // Hearts floating around cart
+  for (let i = 0; i < 3; i++) {
+    const hx = cartScreenX + 30 + Math.sin(frameCount * 0.05 + i * 2) * 15;
+    const hy = cartY - 10 + Math.cos(frameCount * 0.07 + i * 3) * 10;
+    ctx.fillStyle = '#ff0000';
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(hx, hy, 4, 4);
+    ctx.fillRect(hx + 5, hy, 4, 4);
+    ctx.fillRect(hx - 1, hy + 4, 12, 4);
+    ctx.fillRect(hx + 1, hy + 8, 8, 3);
+    ctx.fillRect(hx + 3, hy + 11, 4, 2);
+    ctx.globalAlpha = 1;
+  }
+
+  // Progress text
+  if (progress < 0.15) {
+    const alpha = Math.min(1, cartRideTimer / 30);
+    ctx.globalAlpha = alpha;
+    drawText('🚃 Cart Ride! 🌸', W / 2, 30, '#ffd700', '12px "Press Start 2P", monospace', 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  if (progress > 0.7 && progress < 0.95) {
+    drawText('Almost there...', W / 2, 30, '#fff', '10px "Press Start 2P", monospace', 'center');
+  }
+
+  if (progress > 0.9) {
+    const alpha = Math.min(1, (progress - 0.9) / 0.1);
+    ctx.globalAlpha = alpha;
+    drawText('💝', W / 2, 50, '#ff69b4', '16px "Press Start 2P", monospace', 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.textAlign = 'left';
+}
+
 // --- RENDERING ---
 function drawSky() {
-  // Gradient sky - pink sunset
   const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
   grad.addColorStop(0, '#2d1b4e');
   grad.addColorStop(0.3, '#5c2d6e');
@@ -735,7 +1124,6 @@ function drawSky() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, GROUND_Y);
 
-  // Stars
   ctx.fillStyle = '#fff';
   for (let i = 0; i < 50; i++) {
     const sx = ((i * 137 + 50) % W + (cameraX * 0.05) % W) % W;
@@ -744,7 +1132,6 @@ function drawSky() {
     ctx.fillRect(sx, sy, twinkle, twinkle);
   }
 
-  // Moon
   ctx.fillStyle = '#ffeedd';
   const moonX = W * 0.8 - cameraX * 0.02;
   ctx.beginPath();
@@ -753,40 +1140,74 @@ function drawSky() {
 }
 
 function drawGround() {
-  // Grass layer
-  ctx.fillStyle = '#5a8a3c';
-  ctx.fillRect(0, GROUND_Y - 8, W, 8);
+  // Draw ground only where ground platforms exist
+  platforms.forEach(p => {
+    if (!p.isGround) return;
+    const sx = Math.floor(p.x - cameraX);
+    const ex = Math.floor(p.x + p.w - cameraX);
+    if (ex < 0 || sx > W) return;
+    const drawX = Math.max(0, sx);
+    const drawW = Math.min(W, ex) - drawX;
 
-  // Dirt
-  ctx.fillStyle = '#3d2b1f';
-  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+    // Grass layer
+    ctx.fillStyle = '#5a8a3c';
+    ctx.fillRect(drawX, GROUND_Y - 8, drawW, 8);
 
-  // Pixel grass tufts
-  ctx.fillStyle = '#6db33f';
-  for (let i = 0; i < W; i += 12) {
-    const wx = (i + Math.floor(cameraX) % 12);
-    if (wx % 24 < 12) {
-      ctx.fillRect(i, GROUND_Y - 12, 4, 4);
-      ctx.fillRect(i + 6, GROUND_Y - 10, 3, 2);
+    // Dirt
+    ctx.fillStyle = '#3d2b1f';
+    ctx.fillRect(drawX, GROUND_Y, drawW, H - GROUND_Y);
+
+    // Grass tufts
+    ctx.fillStyle = '#6db33f';
+    for (let i = drawX; i < drawX + drawW; i += 12) {
+      if ((i + Math.floor(cameraX)) % 24 < 12) {
+        ctx.fillRect(i, GROUND_Y - 12, 4, 4);
+        ctx.fillRect(i + 6, GROUND_Y - 10, 3, 2);
+      }
     }
-  }
+  });
 }
 
 function drawPlatforms() {
+  // Static platforms
   platforms.forEach((p, i) => {
-    if (i === 0) return; // skip ground
+    if (p.isGround) return;
     const sx = Math.floor(p.x - cameraX);
     if (sx > W + 10 || sx + p.w < -10) return;
 
-    // Minecraft-style block
-    ctx.fillStyle = '#6db33f'; // grass top
+    ctx.fillStyle = '#6db33f';
     ctx.fillRect(sx, p.y, p.w, 4);
-    ctx.fillStyle = '#8B5E3C'; // dirt
+    ctx.fillStyle = '#8B5E3C';
     ctx.fillRect(sx, p.y + 4, p.w, p.h - 4);
-    // Pixel detail
     ctx.fillStyle = '#7a5030';
     for (let bx = 0; bx < p.w; bx += 16) {
       ctx.fillRect(sx + bx + 4, p.y + 8, 8, 2);
+    }
+  });
+
+  // Moving platforms
+  movingPlatforms.forEach(mp => {
+    const sx = Math.floor(mp.x - cameraX);
+    if (sx > W + 10 || sx + mp.w < -10) return;
+
+    // Glowing pink platform
+    ctx.fillStyle = '#ff69b4';
+    ctx.fillRect(sx, mp.y, mp.w, 3);
+    ctx.fillStyle = mp.color;
+    ctx.fillRect(sx, mp.y + 3, mp.w, mp.h - 3);
+
+    // Sparkle effect
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    const sparkleX = sx + (frameCount * 2 % mp.w);
+    ctx.fillRect(sparkleX, mp.y, 4, 2);
+
+    // Direction indicator arrows
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    if (mp.vertical) {
+      ctx.fillRect(sx + mp.w/2 - 2, mp.y + 2, 4, 3);
+    } else {
+      ctx.fillRect(sx + 2, mp.y + mp.h/2 - 1, 6, 2);
+      ctx.fillRect(sx + mp.w - 8, mp.y + mp.h/2 - 1, 6, 2);
     }
   });
 }
@@ -801,13 +1222,11 @@ function drawCollectibles() {
 
     if (c.type === 'heart') {
       drawHeart(c.x, c.y + bob, 3, '#ff0000');
-      // Glow
       ctx.fillStyle = 'rgba(255,0,0,0.15)';
       ctx.beginPath();
       ctx.arc(sx + c.w/2, c.y + bob + c.h/2, 18, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Petal
       ctx.fillStyle = '#FFB7C5';
       const py = c.y + bob;
       ctx.fillRect(sx + 2, py, 8, 3);
@@ -823,27 +1242,22 @@ function drawEasterEggs() {
     const sx = Math.floor(e.x - cameraX);
     if (sx > W + 80 || sx < -80) return;
 
-    // Sign post
     ctx.fillStyle = '#8B5E3C';
     ctx.fillRect(sx + 65, e.y, 14, 55);
-    // Sign board - much bigger
     const signW = 160;
     const signH = 60;
     const signY = e.y - 30;
     ctx.fillStyle = '#f5e6c8';
     ctx.fillRect(sx - 8, signY, signW, signH);
-    // Border
     ctx.fillStyle = '#5a3a1a';
     ctx.fillRect(sx - 8, signY, signW, 3);
     ctx.fillRect(sx - 8, signY + signH - 3, signW, 3);
     ctx.fillRect(sx - 8, signY, 3, signH);
     ctx.fillRect(sx - 8 + signW - 3, signY, 3, signH);
-    // Inner border
     ctx.fillStyle = '#8B5E3C';
     ctx.fillRect(sx - 4, signY + 4, signW - 8, 2);
     ctx.fillRect(sx - 4, signY + signH - 6, signW - 8, 2);
 
-    // Text - larger and clearer
     ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillStyle = '#2d1b00';
     ctx.textAlign = 'center';
@@ -868,33 +1282,11 @@ function drawPlayer() {
     ctx.fillRect(px, Math.floor(player.y + p.y * scale), scale, scale);
   });
 
-  // Name tag
   drawText('Cutie', Math.floor(player.x - cameraX + player.w / 2), Math.floor(player.y - 10), '#fff', '9px "Press Start 2P", monospace', 'center');
   ctx.textAlign = 'left';
 }
 
-function drawOscar() {
-  if (gameState !== 'playing' && gameState !== 'reveal') return;
-  const sx = Math.floor(oscarNPC.x - cameraX);
-  if (sx > W + 50 || sx < -50) return;
-
-  const sprite = generateOscarSprite();
-  sprite.forEach(p => {
-    ctx.fillStyle = p.c;
-    ctx.fillRect(
-      Math.floor(oscarNPC.x - cameraX + p.x * 3),
-      Math.floor(oscarNPC.y + p.y * 3),
-      3, 3
-    );
-  });
-
-  // Name tag
-  drawText('Pogi', sx + 10, Math.floor(oscarNPC.y - 22), '#fff', '9px "Press Start 2P", monospace', 'center');
-  ctx.textAlign = 'left';
-}
-
 function drawParticles() {
-  // Cherry blossom petals
   particles.forEach((p, i) => {
     p.x += p.vx + Math.sin(frameCount * 0.02 + i) * 0.3;
     p.y += p.vy;
@@ -911,10 +1303,8 @@ function drawParticles() {
   });
   particles = particles.filter(p => p.life > 0 && p.y < H + 10);
 
-  // Spawn new petals
   if (frameCount % 8 === 0) spawnPetal();
 
-  // Confetti
   confettiParticles.forEach(p => {
     p.x += p.vx;
     p.y += p.vy;
@@ -938,25 +1328,55 @@ function drawDoor() {
   const sx = Math.floor(doorX - cameraX);
   if (sx > W + 50 || sx < -50) return;
 
-  // Door frame
-  ctx.fillStyle = '#5a3a1a';
-  ctx.fillRect(sx, GROUND_Y - 60, 36, 60);
-  // Door
-  ctx.fillStyle = hasKey ? '#4a8a3c' : '#8B4513';
-  ctx.fillRect(sx + 3, GROUND_Y - 57, 30, 57);
-  // Lock/handle
+  // Bigger, more prominent door
+  const doorW = 44;
+  const doorH = 70;
+
+  // Door frame - stone archway
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(sx - 6, GROUND_Y - doorH - 10, doorW + 12, doorH + 10);
+  // Arch top
+  ctx.fillStyle = '#5a4a3a';
+  ctx.fillRect(sx - 8, GROUND_Y - doorH - 14, doorW + 16, 8);
+
+  // Door itself
+  ctx.fillStyle = hasKey ? '#4a8a3c' : '#6B3A2A';
+  ctx.fillRect(sx, GROUND_Y - doorH, doorW, doorH);
+
+  // Door panels
+  ctx.fillStyle = hasKey ? '#5aaa4c' : '#5a2a1a';
+  ctx.fillRect(sx + 4, GROUND_Y - doorH + 6, doorW/2 - 6, doorH/2 - 8);
+  ctx.fillRect(sx + doorW/2 + 2, GROUND_Y - doorH + 6, doorW/2 - 6, doorH/2 - 8);
+  ctx.fillRect(sx + 4, GROUND_Y - doorH/2 + 4, doorW/2 - 6, doorH/2 - 8);
+  ctx.fillRect(sx + doorW/2 + 2, GROUND_Y - doorH/2 + 4, doorW/2 - 6, doorH/2 - 8);
+
+  // Lock or handle
   if (!hasKey) {
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(sx + 22, GROUND_Y - 32, 6, 6);
-    // Lock icon
+    // Big lock
     ctx.fillStyle = '#888';
-    ctx.fillRect(sx + 20, GROUND_Y - 38, 10, 4);
+    ctx.fillRect(sx + doorW/2 - 8, GROUND_Y - doorH/2 - 8, 16, 4);
+    ctx.fillRect(sx + doorW/2 - 6, GROUND_Y - doorH/2 - 12, 12, 4);
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(sx + doorW/2 - 6, GROUND_Y - doorH/2 - 4, 12, 12);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(sx + doorW/2 - 2, GROUND_Y - doorH/2 + 2, 4, 4);
   } else {
     ctx.fillStyle = '#4aff4a';
-    ctx.fillRect(sx + 22, GROUND_Y - 32, 6, 6);
+    ctx.fillRect(sx + doorW - 10, GROUND_Y - doorH/2, 6, 6);
   }
-  // Label
-  drawText(hasKey ? '🔓' : '🔒', sx + 18, GROUND_Y - 65, '#fff', '10px "Press Start 2P", monospace', 'center');
+
+  // Lock emoji above door
+  const lockEmoji = hasKey ? '🔓' : '🔒';
+  drawText(lockEmoji, sx + doorW/2, GROUND_Y - doorH - 22, '#fff', '12px "Press Start 2P", monospace', 'center');
+
+  // "DOOR" label with glow
+  if (!hasKey) {
+    const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.08);
+    ctx.globalAlpha = pulse;
+    drawText('🚪', sx + doorW/2, GROUND_Y - doorH - 36, '#ffd700', '10px "Press Start 2P", monospace', 'center');
+    ctx.globalAlpha = 1;
+  }
+
   ctx.textAlign = 'left';
 }
 
@@ -964,18 +1384,30 @@ function drawHUD() {
   ctx.globalAlpha = 1;
 
   // Dark HUD background
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(8, 6, 140, 28);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(8, 6, 160, 28);
   ctx.fillRect(W - 142, 6, 134, 32);
 
-  // Heart counter
+  // Heart counter - show X/32
   drawHeart(cameraX + 15, 12, 2, '#ff0000');
   const heartColor = score >= REQUIRED_HEARTS ? '#4aff4a' : '#fff';
-  drawText(`❤️ ${score}/${totalHearts}`, 42, 26, heartColor, '10px "Press Start 2P", monospace');
+  drawText(`${score}/32`, 42, 26, heartColor, '10px "Press Start 2P", monospace');
 
   // Key indicator
   if (hasKey) {
-    drawText('🔑', 120, 26, '#ffd700', '10px "Press Start 2P", monospace');
+    drawText('🔑', 110, 26, '#ffd700', '10px "Press Start 2P", monospace');
+  } else {
+    // Show lock when no key
+    drawText('🔒', 110, 26, '#888', '10px "Press Start 2P", monospace');
+  }
+
+  // Collect all hint
+  if (!hasKey && score < REQUIRED_HEARTS) {
+    const hintAlpha = 0.5 + 0.3 * Math.sin(frameCount * 0.05);
+    ctx.globalAlpha = hintAlpha;
+    drawText('Collect all 32 hearts! 🔑', W / 2, H - 10, '#ffb7c5', '7px "Press Start 2P", monospace', 'center');
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
   }
 
   // Progress bar
@@ -985,7 +1417,7 @@ function drawHUD() {
   ctx.fillRect(W - barW - 15, 12, barW, 10);
   ctx.fillStyle = '#ff69b4';
   ctx.fillRect(W - barW - 15, 12, barW * progress, 10);
-  drawText('♥ → Pogi', W - barW - 10, 32, '#fff', '6px "Press Start 2P", monospace');
+  drawText('♥ → 🚪', W - barW - 10, 32, '#fff', '6px "Press Start 2P", monospace');
 
   // Key obtained message
   if (keyMessageTimer > 0) {
@@ -993,8 +1425,9 @@ function drawHUD() {
     const alpha = Math.min(1, keyMessageTimer / 30);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(W/2 - 160, H/2 - 25, 320, 50);
-    drawText('You got the key! 🔑', W/2, H/2 + 5, '#ffd700', '12px "Press Start 2P", monospace', 'center');
+    ctx.fillRect(W/2 - 170, H/2 - 30, 340, 60);
+    drawText('All 32 hearts! 🔑', W/2, H/2, '#ffd700', '12px "Press Start 2P", monospace', 'center');
+    drawText('Go to the door!', W/2, H/2 + 18, '#fff', '9px "Press Start 2P", monospace', 'center');
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1;
   }
@@ -1005,8 +1438,8 @@ function drawHUD() {
     const alpha = Math.min(1, doorMessageTimer / 20);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(W/2 - 180, H/2 - 25, 360, 50);
-    drawText(doorMessage, W/2, H/2 + 5, '#ff6666', '9px "Press Start 2P", monospace', 'center');
+    ctx.fillRect(W/2 - 190, H/2 - 25, 380, 50);
+    drawText(doorMessage, W/2, H/2 + 5, '#ff6666', '8px "Press Start 2P", monospace', 'center');
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1;
   }
@@ -1014,17 +1447,12 @@ function drawHUD() {
 
 // --- MENU SCREEN ---
 function drawMenu() {
-  // Background
   drawSky();
-
-  // Title cherry blossom rain
   drawParticles();
 
-  // Dim overlay
   ctx.fillStyle = 'rgba(26, 10, 26, 0.6)';
   ctx.fillRect(0, 0, W, H);
 
-  // Pixel border
   ctx.strokeStyle = '#ff69b4';
   ctx.lineWidth = 4;
   ctx.strokeRect(10, 10, W - 20, H - 20);
@@ -1032,23 +1460,20 @@ function drawMenu() {
   ctx.lineWidth = 2;
   ctx.strokeRect(16, 16, W - 32, H - 32);
 
-  // Title
   const titleY = H * 0.2;
   drawText('💝 VALENTINE QUEST 💝', W / 2, titleY, '#ff69b4', `${Math.min(24, W * 0.04)}px "Press Start 2P", monospace`, 'center');
   drawText('A Game Inspired by Pogi for Cutie', W / 2, titleY + 30, '#FFB7C5', `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`, 'center');
 
-  // Animated hearts
   for (let i = 0; i < 5; i++) {
     const hx = W * 0.2 + i * W * 0.15;
     const hy = titleY + 50 + Math.sin(frameCount * 0.05 + i) * 8;
     drawHeart(hx + cameraX, hy, 2, i % 2 === 0 ? '#ff0000' : '#ff69b4');
   }
 
-  // Instructions
   const instY = H * 0.55;
   const instFont = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
   drawText('🌸 Help Cutie collect hearts! 🌸', W / 2, instY, '#fff', instFont, 'center');
-  drawText('Collect 20+ hearts for the key! 🔑', W / 2, instY + 25, '#fff', instFont, 'center');
+  drawText('Collect all 32 hearts for the key! 🔑', W / 2, instY + 25, '#fff', instFont, 'center');
 
   if (isMobile) {
     drawText('Use buttons to move & jump', W / 2, instY + 55, '#fff', instFont, 'center');
@@ -1057,15 +1482,12 @@ function drawMenu() {
     drawText('Space / Up to jump', W / 2, instY + 70, '#fff', instFont, 'center');
   }
 
-  // Blinking start text
   if (Math.sin(frameCount * 0.08) > 0) {
     drawText('♥ PRESS START ♥', W / 2, H * 0.82, '#ffd700', `${Math.min(14, W * 0.025)}px "Press Start 2P", monospace`, 'center');
     drawText('(Tap or press any key)', W / 2, H * 0.82 + 22, '#ff69b4', `${Math.min(9, W * 0.015)}px "Press Start 2P", monospace`, 'center');
   }
 
-  // Player 2 reference
   drawText('♥ Player 2 has joined ♥', W / 2, H * 0.92, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
-
   ctx.textAlign = 'left';
 }
 
@@ -1079,8 +1501,8 @@ const introLines = [
   '',
   'Almost 3 years and counting!',
   '',
-  'Help Cutie run to Pogi!',
-  'Collect hearts along the way!',
+  'Help Cutie run to the door!',
+  'Collect ALL 32 hearts!',
   '',
   '♥ GET READY ♥'
 ];
@@ -1111,7 +1533,6 @@ function drawIntro() {
     startBGMusic();
   }
 
-  // Skip hint
   if (Math.sin(frameCount * 0.1) > 0) {
     ctx.fillStyle = 'rgba(255,153,204,0.6)';
     ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
@@ -1122,65 +1543,135 @@ function drawIntro() {
   introTimer++;
 }
 
-// --- REVEAL SCREEN ---
+// --- REVEAL SCREEN (after cart ride) ---
 function drawReveal() {
   revealTimer++;
 
-  // Still show the game behind
-  drawSky();
-  trees.forEach(t => {
-    const sx = Math.floor(t.x - cameraX);
-    if (sx > -80 && sx < W + 80) drawTree(t.x, t.y);
-  });
-  drawGround();
-  drawPlatforms();
-  drawOscar();
-  drawPlayer();
-  drawParticles();
+  ctx.clearRect(0, 0, W, H);
 
-  // Overlay
-  const overlayAlpha = Math.min(0.8, revealTimer / 120);
-  ctx.fillStyle = `rgba(26, 10, 26, ${overlayAlpha})`;
+  // Beautiful background
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#2d1b4e');
+  grad.addColorStop(0.3, '#5c2d6e');
+  grad.addColorStop(0.6, '#ff69b4');
+  grad.addColorStop(1, '#ffb7c5');
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  if (revealTimer > 60) {
+  // Ground
+  ctx.fillStyle = '#5a8a3c';
+  ctx.fillRect(0, H - 50, W, 5);
+  ctx.fillStyle = '#3d2b1f';
+  ctx.fillRect(0, H - 45, W, 45);
+
+  // Cherry blossom trees flanking the scene
+  const treeCam = cameraX;
+  cameraX = 0;
+  drawTree(50, H - 45);
+  drawTree(W - 100, H - 45);
+  cameraX = treeCam;
+
+  // Draw Oscar (Pogi) in center
+  if (revealTimer > 30) {
+    const oscarAlpha = Math.min(1, (revealTimer - 30) / 40);
+    ctx.globalAlpha = oscarAlpha;
+
+    const oscarX = W / 2 - 10;
+    const oscarY = H - 80;
+    const sprite = generateOscarSprite();
+    sprite.forEach(p => {
+      ctx.fillStyle = p.c;
+      ctx.fillRect(
+        Math.floor(oscarX + p.x * 3),
+        Math.floor(oscarY + p.y * 3),
+        3, 3
+      );
+    });
+
+    drawText('Pogi', oscarX + 10, oscarY - 22, '#fff', '9px "Press Start 2P", monospace', 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw player (Cutie) arriving from left
+  if (revealTimer > 50) {
+    const cutieX = Math.min(W / 2 - 50, 20 + (revealTimer - 50) * 2);
+    const cutieY = H - 75;
+    const sprite = generatePlayerSprite(Math.floor(revealTimer / 4));
+    sprite.forEach(p => {
+      ctx.fillStyle = p.c;
+      ctx.fillRect(
+        Math.floor(cutieX + p.x * 3),
+        Math.floor(cutieY + p.y * 3),
+        3, 3
+      );
+    });
+    drawText('Cutie', cutieX + 10, cutieY - 10, '#fff', '9px "Press Start 2P", monospace', 'center');
+  }
+
+  // Overlay fades in
+  if (revealTimer > 90) {
+    const overlayAlpha = Math.min(0.6, (revealTimer - 90) / 120);
+    ctx.fillStyle = `rgba(26, 10, 26, ${overlayAlpha})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  if (revealTimer > 100) {
     // Big heart
-    const heartScale = Math.min(1, (revealTimer - 60) / 60);
+    const heartScale = Math.min(1, (revealTimer - 100) / 60);
     const heartSize = Math.min(6, W * 0.01) * heartScale;
-    drawHeart(W / 2 - heartSize * 3.5 + cameraX, H * 0.15, heartSize, '#ff0000');
+    drawHeart(W / 2 - heartSize * 3.5 + cameraX, H * 0.1, heartSize, '#ff0000');
+  }
 
-    // Main text
-    if (revealTimer > 120) {
-      const textAlpha = Math.min(1, (revealTimer - 120) / 40);
-      ctx.globalAlpha = textAlpha;
+  if (revealTimer > 140) {
+    const textAlpha = Math.min(1, (revealTimer - 140) / 40);
+    ctx.globalAlpha = textAlpha;
 
-      drawText('Be My Valentine,', W / 2, H * 0.45, '#ff69b4', `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`, 'center');
-      drawText('Cutie? 💝', W / 2, H * 0.55, '#ffd700', `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`, 'center');
+    drawText('Be My Valentine,', W / 2, H * 0.35, '#ff69b4', `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`, 'center');
+    drawText('Cutie? 💝', W / 2, H * 0.45, '#ffd700', `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`, 'center');
 
-      // Score
-      if (revealTimer > 180) {
-        ctx.globalAlpha = Math.min(1, (revealTimer - 180) / 40);
-        drawText(`Hearts collected: ${score}/${totalHearts}`, W / 2, H * 0.67, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
-        drawText('🌸 I love you! 🌸', W / 2, H * 0.73, '#fff', null, 'center');
-        drawText('- Your Pogi ♥', W / 2, H * 0.8, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
-      }
-
-      ctx.textAlign = 'left';
-      ctx.globalAlpha = 1;
+    if (revealTimer > 200) {
+      ctx.globalAlpha = Math.min(1, (revealTimer - 200) / 40);
+      drawText(`Hearts collected: ${score}/32`, W / 2, H * 0.57, '#fff', `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`, 'center');
+      drawText('🌸 I love you! 🌸', W / 2, H * 0.63, '#fff', null, 'center');
+      drawText('- Your Pogi ♥', W / 2, H * 0.7, '#ff99cc', `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`, 'center');
     }
+
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
   }
 
   // Confetti
-  if (revealTimer > 80 && revealTimer % 5 === 0) {
+  if (revealTimer > 110 && revealTimer % 5 === 0) {
     spawnConfetti(Math.random() * W + cameraX, -20);
     spawnConfetti(Math.random() * W + cameraX, -20);
   }
+
+  // Draw confetti particles (manually since we're not in normal render)
+  confettiParticles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.rot += p.rotSpeed;
+    p.life--;
+
+    ctx.save();
+    ctx.translate(p.x - cameraX, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.min(1, p.life / 30);
+    ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    ctx.restore();
+  });
+  confettiParticles = confettiParticles.filter(p => p.life > 0);
 }
 
 // --- MAIN GAME LOOP ---
 function update() {
   if (gameState === 'playing') {
     updatePlayer();
+    updateMovingPlatforms();
+  } else if (gameState === 'cartride') {
+    updateCartRide();
   }
 }
 
@@ -1192,14 +1683,16 @@ function render() {
     drawMenu();
   } else if (gameState === 'intro') {
     drawIntro();
-  } else if (gameState === 'playing' || gameState === 'reveal') {
+  } else if (gameState === 'cartride') {
+    drawCartRide();
+  } else if (gameState === 'reveal') {
+    drawReveal();
+  } else if (gameState === 'playing') {
     drawSky();
 
-    // Trees (background layer, parallax)
     trees.forEach(t => {
       const sx = Math.floor(t.x - cameraX * 0.7);
       if (sx > -80 && sx < W + 80) {
-        // Draw with parallax offset
         const oldCam = cameraX;
         cameraX *= 0.7;
         drawTree(t.x, t.y);
@@ -1212,12 +1705,10 @@ function render() {
     drawCollectibles();
     drawEasterEggs();
     drawDoor();
-    drawOscar();
+    // Oscar is NOT drawn during gameplay - only door is visible
     drawPlayer();
     drawParticles();
     drawHUD();
-
-    if (gameState === 'reveal') drawReveal();
   }
 
   frameCount++;
@@ -1229,14 +1720,12 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// --- RESIZE (fixed internal resolution, CSS scaling) ---
+// --- RESIZE ---
 function resize() {
-  // Internal resolution stays fixed
   canvas.width = GAME_W;
   canvas.height = GAME_H;
   ctx.imageSmoothingEnabled = false;
 
-  // Scale canvas via CSS to fill window while maintaining aspect ratio
   const windowW = window.innerWidth;
   const windowH = window.innerHeight;
   const scaleX = windowW / GAME_W;
@@ -1265,7 +1754,6 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
-// Mobile controls
 function setupMobileBtn(id, inputKey) {
   const btn = document.getElementById(id);
   btn.addEventListener('touchstart', e => {
@@ -1281,7 +1769,6 @@ function setupMobileBtn(id, inputKey) {
   btn.addEventListener('touchcancel', e => { mobileInput[inputKey] = false; });
 }
 
-// Canvas tap for menu
 canvas.addEventListener('touchstart', e => {
   if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
   else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
@@ -1301,7 +1788,7 @@ function fakeLoading() {
     'Spawning pixel art...',
     'Tuning 8-bit music...',
     'Planting sakura trees...',
-    'Finding Pogi...',
+    'Building minecart track...',
     'Ready! ♥'
   ];
   let progress = 0;
