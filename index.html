@@ -129,6 +129,16 @@ let keyMessageTimer = 0;
 let doorMessage = '';
 let doorMessageTimer = 0;
 
+// Lives system
+let lives = 3;
+let lastSafeX = 100;
+let lastSafeY = 0;
+let invincibleTimer = 0;
+let gameOverTimer = 0;
+
+// Enemies
+let enemies = [];
+
 // Cart ride state
 let cartRideActive = false;
 let cartRideX = 0;
@@ -445,6 +455,126 @@ function drawHeart(x, y, size, color = '#ff0000') {
   ctx.fillRect(sx + 3*s, sy + 5*s, s, s);
 }
 
+// --- MINECRAFT ENEMY SPRITES ---
+function drawCreeper(x, y, facing) {
+  const sx = Math.floor(x - cameraX);
+  const sy = Math.floor(y);
+  const s = 2; // pixel scale
+  // Head (green box)
+  ctx.fillStyle = '#3d8a3d';
+  ctx.fillRect(sx, sy, 8*s, 8*s);
+  ctx.fillStyle = '#2d6e2d';
+  ctx.fillRect(sx+s, sy+s, 6*s, 6*s);
+  // Face - sad creeper face
+  ctx.fillStyle = '#1a1a1a';
+  // Eyes
+  ctx.fillRect(sx+1*s, sy+2*s, 2*s, 2*s);
+  ctx.fillRect(sx+5*s, sy+2*s, 2*s, 2*s);
+  // Mouth (frown)
+  ctx.fillRect(sx+3*s, sy+4*s, 2*s, s);
+  ctx.fillRect(sx+2*s, sy+5*s, s, s);
+  ctx.fillRect(sx+5*s, sy+5*s, s, s);
+  ctx.fillRect(sx+2*s, sy+6*s, 4*s, s);
+  // Body
+  ctx.fillStyle = '#3d8a3d';
+  ctx.fillRect(sx+s, sy+8*s, 6*s, 6*s);
+  ctx.fillStyle = '#2d6e2d';
+  ctx.fillRect(sx+2*s, sy+9*s, 4*s, 4*s);
+  // Legs
+  ctx.fillStyle = '#2d6e2d';
+  ctx.fillRect(sx+s, sy+14*s, 2*s, 3*s);
+  ctx.fillRect(sx+5*s, sy+14*s, 2*s, 3*s);
+}
+
+function drawZombie(x, y, facing) {
+  const sx = Math.floor(x - cameraX);
+  const sy = Math.floor(y);
+  const s = 2;
+  // Head (green skin)
+  ctx.fillStyle = '#5a8a5a';
+  ctx.fillRect(sx+s, sy, 6*s, 8*s);
+  ctx.fillStyle = '#4a7a4a';
+  ctx.fillRect(sx+2*s, sy+s, 4*s, 6*s);
+  // Eyes
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx+2*s, sy+3*s, 2*s, s);
+  ctx.fillRect(sx+5*s, sy+3*s, s, s);
+  // Mouth
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(sx+3*s, sy+5*s, 2*s, s);
+  // Body (blue shirt)
+  ctx.fillStyle = '#4466aa';
+  ctx.fillRect(sx+s, sy+8*s, 6*s, 5*s);
+  ctx.fillStyle = '#3355aa';
+  ctx.fillRect(sx+2*s, sy+9*s, 4*s, 3*s);
+  // Arms (outstretched)
+  ctx.fillStyle = '#5a8a5a';
+  const armDir = facing > 0 ? 1 : -1;
+  ctx.fillRect(sx + (armDir > 0 ? 7*s : -3*s), sy+8*s, 3*s, 2*s);
+  ctx.fillRect(sx + (armDir > 0 ? -1*s : 6*s), sy+9*s, 2*s, 2*s);
+  // Legs (dark pants)
+  ctx.fillStyle = '#334';
+  ctx.fillRect(sx+2*s, sy+13*s, 2*s, 3*s);
+  ctx.fillRect(sx+5*s, sy+13*s, 2*s, 3*s);
+}
+
+function drawSkeleton(x, y, facing) {
+  const sx = Math.floor(x - cameraX);
+  const sy = Math.floor(y);
+  const s = 2;
+  // Head (white/gray skull)
+  ctx.fillStyle = '#ddd';
+  ctx.fillRect(sx+s, sy, 6*s, 7*s);
+  ctx.fillStyle = '#ccc';
+  ctx.fillRect(sx+2*s, sy+s, 4*s, 5*s);
+  // Eyes (dark sockets)
+  ctx.fillStyle = '#222';
+  ctx.fillRect(sx+2*s, sy+2*s, 2*s, 2*s);
+  ctx.fillRect(sx+5*s, sy+2*s, s, 2*s);
+  // Nose
+  ctx.fillRect(sx+3*s, sy+4*s, s, s);
+  // Mouth (teeth)
+  ctx.fillStyle = '#444';
+  ctx.fillRect(sx+2*s, sy+5*s, 4*s, s);
+  ctx.fillStyle = '#ddd';
+  ctx.fillRect(sx+3*s, sy+5*s, s, s);
+  // Body (ribcage)
+  ctx.fillStyle = '#bbb';
+  ctx.fillRect(sx+3*s, sy+7*s, 2*s, 5*s);
+  ctx.fillStyle = '#999';
+  ctx.fillRect(sx+2*s, sy+8*s, 4*s, s);
+  ctx.fillRect(sx+2*s, sy+10*s, 4*s, s);
+  // Bow arm
+  ctx.fillStyle = '#bbb';
+  const bowX = facing > 0 ? sx+7*s : sx-3*s;
+  ctx.fillRect(bowX, sy+7*s, s, 5*s);
+  // Bow
+  ctx.fillStyle = '#8B5E3C';
+  ctx.fillRect(bowX + (facing > 0 ? s : -s), sy+7*s, s, 6*s);
+  ctx.fillStyle = '#aaa';
+  ctx.fillRect(bowX + (facing > 0 ? 2*s : -2*s), sy+7*s, s/2, 6*s);
+  // Other arm
+  ctx.fillStyle = '#bbb';
+  ctx.fillRect(sx + (facing > 0 ? -s : 7*s), sy+8*s, s, 3*s);
+  // Legs
+  ctx.fillStyle = '#bbb';
+  ctx.fillRect(sx+2*s, sy+12*s, s, 4*s);
+  ctx.fillRect(sx+5*s, sy+12*s, s, 4*s);
+}
+
+function playHitSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  playNote(200, 0.15, t, 'sawtooth', 0.1);
+  playNote(150, 0.2, t + 0.1, 'square', 0.08);
+}
+
+function playGameOverSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  [400,350,300,250,200].forEach((n,i) => playNote(n, 0.3, t + i*0.25, 'square', 0.1));
+}
+
 // --- CHERRY BLOSSOM TREE ---
 function drawTree(x, y) {
   const sx = Math.floor(x - cameraX);
@@ -557,12 +687,12 @@ function resetGame() {
   // Ground segments with GAPS to create challenge
   // Gap positions - player must jump across
   const gaps = [
-    { start: 1100, end: 1180 },
-    { start: 2200, end: 2300 },
-    { start: 3300, end: 3420 },
-    { start: 4500, end: 4640 },
-    { start: 5500, end: 5640 },
-    { start: 6500, end: 6620 },
+    { start: 1100, end: 1250 },
+    { start: 2200, end: 2380 },
+    { start: 3300, end: 3500 },
+    { start: 4500, end: 4730 },
+    { start: 5500, end: 5720 },
+    { start: 6500, end: 6710 },
   ];
 
   // Build ground with gaps
@@ -589,10 +719,10 @@ function resetGame() {
     { x: 720, y: GROUND_Y - 90, w: 55 },
     { x: 880, y: GROUND_Y - 65, w: 65 },
 
-    // Over gap 1 (1100-1180) - stepping stones
+    // Over gap 1 (1100-1250) - stepping stones
     { x: 1080, y: GROUND_Y - 40, w: 45 },
-    { x: 1135, y: GROUND_Y - 70, w: 40 },
-    { x: 1175, y: GROUND_Y - 40, w: 45 },
+    { x: 1155, y: GROUND_Y - 70, w: 40 },
+    { x: 1230, y: GROUND_Y - 40, w: 45 },
 
     // Section 2 (1200-2200): Staircase and precision
     { x: 1300, y: GROUND_Y - 50, w: 55 },
@@ -603,9 +733,10 @@ function resetGame() {
     { x: 1900, y: GROUND_Y - 60, w: 55 },
     { x: 2050, y: GROUND_Y - 85, w: 50 },
 
-    // Over gap 2 (2200-2300) - tricky
+    // Over gap 2 (2200-2380) - tricky
     { x: 2190, y: GROUND_Y - 50, w: 40 },
-    { x: 2250, y: GROUND_Y - 80, w: 35 },
+    { x: 2280, y: GROUND_Y - 80, w: 40 },
+    { x: 2360, y: GROUND_Y - 50, w: 40 },
 
     // Section 3 (2300-3300): Vertical challenge
     { x: 2400, y: GROUND_Y - 55, w: 50 },
@@ -616,10 +747,10 @@ function resetGame() {
     { x: 3050, y: GROUND_Y - 85, w: 45 },
     { x: 3180, y: GROUND_Y - 50, w: 60 },
 
-    // Over gap 3 (3300-3420)
+    // Over gap 3 (3300-3500)
     { x: 3280, y: GROUND_Y - 45, w: 40 },
-    { x: 3340, y: GROUND_Y - 75, w: 35 },
-    { x: 3400, y: GROUND_Y - 45, w: 40 },
+    { x: 3370, y: GROUND_Y - 75, w: 40 },
+    { x: 3470, y: GROUND_Y - 45, w: 45 },
 
     // Section 4 (3420-4500): Zigzag madness
     { x: 3520, y: GROUND_Y - 60, w: 50 },
@@ -631,7 +762,7 @@ function resetGame() {
     { x: 4260, y: GROUND_Y - 65, w: 50 },
     { x: 4380, y: GROUND_Y - 85, w: 45 },
 
-    // Over gap 4 (4500-4640) - longest gap, needs moving platform
+    // Over gap 4 (4500-4730) - longest gap, needs moving platform
     { x: 4480, y: GROUND_Y - 40, w: 40 },
 
     // Section 5 (4640-5500): Precision platforming
@@ -642,10 +773,10 @@ function resetGame() {
     { x: 5200, y: GROUND_Y - 95, w: 38 },
     { x: 5330, y: GROUND_Y - 60, w: 50 },
 
-    // Over gap 5 (5500-5640)
+    // Over gap 5 (5500-5720)
     { x: 5480, y: GROUND_Y - 45, w: 40 },
-    { x: 5560, y: GROUND_Y - 70, w: 35 },
-    { x: 5630, y: GROUND_Y - 40, w: 40 },
+    { x: 5580, y: GROUND_Y - 70, w: 40 },
+    { x: 5690, y: GROUND_Y - 40, w: 45 },
 
     // Section 6 (5640-6500): Final gauntlet
     { x: 5740, y: GROUND_Y - 65, w: 45 },
@@ -655,9 +786,10 @@ function resetGame() {
     { x: 6220, y: GROUND_Y - 70, w: 45 },
     { x: 6350, y: GROUND_Y - 100, w: 35 }, // brutal tiny high
 
-    // Over gap 6 (6500-6620)
-    { x: 6490, y: GROUND_Y - 50, w: 38 },
-    { x: 6570, y: GROUND_Y - 75, w: 35 },
+    // Over gap 6 (6500-6710)
+    { x: 6490, y: GROUND_Y - 50, w: 40 },
+    { x: 6590, y: GROUND_Y - 75, w: 40 },
+    { x: 6690, y: GROUND_Y - 45, w: 40 },
 
     // Final stretch to door
     { x: 6700, y: GROUND_Y - 60, w: 50 },
@@ -674,19 +806,19 @@ function resetGame() {
   // MOVING PLATFORMS - add real challenge
   movingPlatforms = [
     // Over gap 1 - moving platform for safety
-    { x: 1120, y: GROUND_Y - 30, w: 50, h: 12, minX: 1090, maxX: 1170, speed: 0.8, color: '#d4a0c0' },
+    { x: 1120, y: GROUND_Y - 30, w: 50, h: 12, minX: 1090, maxX: 1240, speed: 0.8, color: '#d4a0c0' },
     // Section 2 - vertical mover
     { x: 1700, y: GROUND_Y - 50, w: 50, h: 12, minY: GROUND_Y - 100, maxY: GROUND_Y - 40, speed: 0.6, vertical: true, color: '#d4a0c0' },
     // Over gap 4 - essential moving platform (long gap)
-    { x: 4520, y: GROUND_Y - 25, w: 55, h: 12, minX: 4500, maxX: 4630, speed: 0.7, color: '#d4a0c0' },
+    { x: 4520, y: GROUND_Y - 25, w: 55, h: 12, minX: 4500, maxX: 4720, speed: 0.7, color: '#d4a0c0' },
     // Section 5 - vertical challenge
     { x: 5100, y: GROUND_Y - 60, w: 45, h: 12, minY: GROUND_Y - 100, maxY: GROUND_Y - 45, speed: 0.8, vertical: true, color: '#d4a0c0' },
     // Over gap 5 - helper
-    { x: 5530, y: GROUND_Y - 30, w: 45, h: 12, minX: 5500, maxX: 5630, speed: 0.9, color: '#d4a0c0' },
+    { x: 5530, y: GROUND_Y - 30, w: 45, h: 12, minX: 5500, maxX: 5710, speed: 0.9, color: '#d4a0c0' },
     // Section 6 - fast horizontal
     { x: 6000, y: GROUND_Y - 75, w: 45, h: 12, minX: 5960, maxX: 6100, speed: 1.0, color: '#d4a0c0' },
     // Over gap 6
-    { x: 6530, y: GROUND_Y - 35, w: 50, h: 12, minX: 6500, maxX: 6610, speed: 0.85, color: '#d4a0c0' },
+    { x: 6530, y: GROUND_Y - 35, w: 50, h: 12, minX: 6500, maxX: 6700, speed: 0.85, color: '#d4a0c0' },
   ];
   // Initialize moving platform positions
   movingPlatforms.forEach(mp => {
@@ -796,6 +928,30 @@ function resetGame() {
       wobble: Math.random() * Math.PI * 2
     });
   }
+
+  // Lives
+  lives = 3;
+  lastSafeX = 100;
+  lastSafeY = GROUND_Y - 33;
+  invincibleTimer = 0;
+  gameOverTimer = 0;
+
+  // Minecraft enemies
+  enemies = [
+    // Creepers on ground
+    { x: 800, y: GROUND_Y - 34, w: 16, h: 34, type: 'creeper', minX: 700, maxX: 1000, speed: 0.7, facing: 1 },
+    { x: 2500, y: GROUND_Y - 34, w: 16, h: 34, type: 'creeper', minX: 2400, maxX: 2700, speed: 0.8, facing: 1 },
+    { x: 4200, y: GROUND_Y - 34, w: 16, h: 34, type: 'creeper', minX: 4050, maxX: 4400, speed: 0.6, facing: -1 },
+    // Zombies on platforms
+    { x: 1430, y: GROUND_Y - 80 - 32, w: 16, h: 32, type: 'zombie', minX: 1420, maxX: 1470, speed: 0.4, facing: 1 },
+    { x: 3640, y: GROUND_Y - 95 - 32, w: 16, h: 32, type: 'zombie', minX: 3630, maxX: 3680, speed: 0.5, facing: -1 },
+    { x: 5860, y: GROUND_Y - 95 - 32, w: 16, h: 32, type: 'zombie', minX: 5850, maxX: 5898, speed: 0.45, facing: 1 },
+    // Skeletons
+    { x: 1800, y: GROUND_Y - 32, w: 16, h: 32, type: 'skeleton', minX: 1700, maxX: 1950, speed: 0.6, facing: 1 },
+    { x: 3100, y: GROUND_Y - 32, w: 16, h: 32, type: 'skeleton', minX: 3000, maxX: 3250, speed: 0.7, facing: -1 },
+    { x: 5300, y: GROUND_Y - 32, w: 16, h: 32, type: 'skeleton', minX: 5200, maxX: 5400, speed: 0.55, facing: 1 },
+    { x: 6800, y: GROUND_Y - 32, w: 16, h: 32, type: 'skeleton', minX: 6720, maxX: 6900, speed: 0.65, facing: -1 },
+  ];
 }
 
 // --- PARTICLES ---
@@ -889,37 +1045,28 @@ function updatePlayer() {
     }
   });
 
-  // Fall off screen - respawn at last safe ground
-  if (player.y > GAME_H + 50) {
-    // Find nearest ground before current position
-    let respawnX = 100;
-    platforms.forEach(p => {
-      if (p.isGround && p.x < player.x && p.x + p.w > player.x) {
-        respawnX = player.x;
-      } else if (p.isGround && p.x + p.w <= player.x) {
-        respawnX = p.x + p.w - 30;
-      }
-    });
-    // Clamp to a ground segment
-    let onGround = false;
-    platforms.forEach(p => {
-      if (p.isGround && respawnX >= p.x && respawnX <= p.x + p.w) onGround = true;
-    });
-    if (!onGround) {
-      // Find previous ground segment end
-      let bestX = 100;
-      platforms.forEach(p => {
-        if (p.isGround && p.x + p.w < player.x) {
-          bestX = p.x + p.w - 40;
-        }
-      });
-      respawnX = bestX;
-    }
-    player.x = respawnX;
-    player.y = GROUND_Y - player.h - 20;
-    player.vy = 0;
-    player.vx = 0;
+  // Track last safe ground position
+  if (player.onGround) {
+    lastSafeX = player.x;
+    lastSafeY = player.y;
   }
+
+  // Invincibility cooldown
+  if (invincibleTimer > 0) invincibleTimer--;
+
+  // Fall off screen - lose a life
+  if (player.y > GAME_H + 50) {
+    loseLife();
+  }
+
+  // Enemy collision
+  enemies.forEach(e => {
+    if (invincibleTimer > 0) return;
+    if (player.x + player.w > e.x && player.x < e.x + e.w &&
+        player.y + player.h > e.y && player.y < e.y + e.h) {
+      loseLife();
+    }
+  });
 
   // Keep in bounds
   if (player.x < 0) player.x = 0;
@@ -969,6 +1116,34 @@ function updatePlayer() {
   cameraX += (targetCam - cameraX) * 0.1;
   if (cameraX < 0) cameraX = 0;
   if (cameraX > LEVEL_WIDTH - W) cameraX = LEVEL_WIDTH - W;
+}
+
+// --- LIVES SYSTEM ---
+function loseLife() {
+  lives--;
+  playHitSound();
+  if (lives <= 0) {
+    gameState = 'gameover';
+    gameOverTimer = 0;
+    stopBGMusic();
+    playGameOverSound();
+    return;
+  }
+  // Respawn at last safe position
+  player.x = lastSafeX;
+  player.y = lastSafeY;
+  player.vy = 0;
+  player.vx = 0;
+  invincibleTimer = 90; // 1.5 seconds of invincibility
+}
+
+// --- ENEMY UPDATE ---
+function updateEnemies() {
+  enemies.forEach(e => {
+    e.x += e.speed * e.facing;
+    if (e.x <= e.minX) { e.facing = 1; }
+    if (e.x >= e.maxX) { e.facing = -1; }
+  });
 }
 
 // --- CART RIDE ---
@@ -1431,13 +1606,21 @@ function drawHUD() {
 
   // Dark HUD background
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(8, 6, 160, 28);
+  ctx.fillRect(8, 6, 200, 28);
   ctx.fillRect(W - 142, 6, 134, 32);
 
+  // Lives display as pixel hearts
+  for (let i = 0; i < lives; i++) {
+    drawHeart(cameraX + 14 + i * 18, 11, 2, '#ff3366');
+  }
+  // Gray hearts for lost lives
+  for (let i = lives; i < 3; i++) {
+    drawHeart(cameraX + 14 + i * 18, 11, 2, '#444');
+  }
+
   // Heart counter - show X/32
-  drawHeart(cameraX + 15, 12, 2, '#ff0000');
   const heartColor = score >= REQUIRED_HEARTS ? '#4aff4a' : '#fff';
-  drawText(`${score}/32`, 42, 26, heartColor, '10px "Press Start 2P", monospace');
+  drawText(`${score}/32`, 78, 26, heartColor, '10px "Press Start 2P", monospace');
 
   // Key indicator
   if (hasKey) {
@@ -1518,8 +1701,8 @@ function drawMenu() {
 
   const instY = H * 0.55;
   const instFont = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
-  drawText('🌸 Collect all 32 hearts! 🌸', W / 2, instY, '#fff', instFont, 'center');
-  drawText('Collect all 32 hearts for the key! 🔑', W / 2, instY + 25, '#fff', instFont, 'center');
+  drawText('Collect all 32 hearts for the key! 🔑', W / 2, instY, '#fff', instFont, 'center');
+  drawText('Watch out for Minecraft mobs! ⚔️', W / 2, instY + 25, '#fff', instFont, 'center');
 
   if (isMobile) {
     drawText('Use buttons to move & jump', W / 2, instY + 55, '#fff', instFont, 'center');
@@ -1716,6 +1899,7 @@ function update() {
   if (gameState === 'playing') {
     updatePlayer();
     updateMovingPlatforms();
+    updateEnemies();
   } else if (gameState === 'cartride') {
     updateCartRide();
   }
@@ -1733,6 +1917,30 @@ function render() {
     drawCartRide();
   } else if (gameState === 'reveal') {
     drawReveal();
+  } else if (gameState === 'gameover') {
+    drawSky();
+    ctx.fillStyle = 'rgba(26, 10, 26, 0.75)';
+    ctx.fillRect(0, 0, W, H);
+    gameOverTimer++;
+
+    // Retro game over box
+    ctx.fillStyle = '#1a0a1a';
+    ctx.fillRect(W/2 - 130, H/2 - 60, 260, 120);
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(W/2 - 130, H/2 - 60, 260, 120);
+    ctx.strokeStyle = '#ff69b4';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(W/2 - 126, H/2 - 56, 252, 112);
+
+    drawText('GAME OVER', W/2, H/2 - 30, '#ff0000', '16px "Press Start 2P", monospace', 'center');
+    drawText(`Hearts: ${score}/32`, W/2, H/2, '#ff69b4', '9px "Press Start 2P", monospace', 'center');
+
+    if (gameOverTimer > 60 && Math.sin(frameCount * 0.08) > 0) {
+      drawText('♥ TRY AGAIN? ♥', W/2, H/2 + 30, '#ffd700', '11px "Press Start 2P", monospace', 'center');
+      drawText('(Press any key)', W/2, H/2 + 48, '#ff99cc', '7px "Press Start 2P", monospace', 'center');
+    }
+    ctx.textAlign = 'left';
   } else if (gameState === 'playing') {
     drawSky();
 
@@ -1751,8 +1959,18 @@ function render() {
     drawCollectibles();
     drawEasterEggs();
     drawDoor();
-    // Oscar is NOT drawn during gameplay - only door is visible
-    drawPlayer();
+    // Draw enemies
+    enemies.forEach(e => {
+      const sx = Math.floor(e.x - cameraX);
+      if (sx > W + 30 || sx + e.w < -30) return;
+      if (e.type === 'creeper') drawCreeper(e.x, e.y, e.facing);
+      else if (e.type === 'zombie') drawZombie(e.x, e.y, e.facing);
+      else if (e.type === 'skeleton') drawSkeleton(e.x, e.y, e.facing);
+    });
+    // Player (blink when invincible)
+    if (invincibleTimer <= 0 || Math.floor(frameCount / 3) % 2 === 0) {
+      drawPlayer();
+    }
     drawParticles();
     drawHUD();
   }
@@ -1796,6 +2014,10 @@ document.addEventListener('keydown', e => {
   } else if (gameState === 'intro') {
     gameState = 'playing';
     startBGMusic();
+  } else if (gameState === 'gameover' && gameOverTimer > 60) {
+    resetGame();
+    gameState = 'playing';
+    startBGMusic();
   }
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
@@ -1818,10 +2040,12 @@ function setupMobileBtn(id, inputKey) {
 canvas.addEventListener('touchstart', e => {
   if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
   else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
+  else if (gameState === 'gameover' && gameOverTimer > 60) { resetGame(); gameState = 'playing'; startBGMusic(); }
 });
 canvas.addEventListener('click', () => {
   if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
   else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
+  else if (gameState === 'gameover' && gameOverTimer > 60) { resetGame(); gameState = 'playing'; startBGMusic(); }
 });
 
 // --- LOADING SEQUENCE ---
