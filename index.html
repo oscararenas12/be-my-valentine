@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>💝 Be My Valentine, Cutie? 💝</title>
+<style>
+@font-face {
+  font-family: 'PressStart';
+  src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a0a1a;
+  overflow: hidden;
+  font-family: 'Press Start 2P', 'PressStart', monospace;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+#gameCanvas {
+  display: block;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: none;
+}
+#loading {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: #1a0a1a;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 1000;
+  color: #ff69b4;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  transition: opacity 0.5s;
+}
+#loading .bar {
+  width: 300px; height: 20px;
+  border: 2px solid #ff69b4;
+  margin-top: 20px;
+  position: relative;
+}
+#loading .bar-fill {
+  height: 100%; background: #ff69b4;
+  width: 0%; transition: width 0.3s;
+}
+#loading .subtitle {
+  margin-top: 15px;
+  font-size: 8px;
+  color: #ff99cc;
+}
+#mobileControls {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 120px;
+  z-index: 100;
+  pointer-events: none;
+}
+.mBtn {
+  position: absolute;
+  width: 60px; height: 60px;
+  border-radius: 50%;
+  background: rgba(255,105,180,0.3);
+  border: 2px solid rgba(255,105,180,0.6);
+  color: #fff;
+  font-size: 24px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: all;
+  -webkit-tap-highlight-color: transparent;
+}
+.mBtn:active { background: rgba(255,105,180,0.6); }
+#btnLeft { left: 20px; bottom: 20px; }
+#btnRight { left: 100px; bottom: 20px; }
+#btnJump { right: 20px; bottom: 20px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div>Loading love.exe...</div>
+  <div class="bar"><div class="bar-fill" id="loadBar"></div></div>
+  <div class="subtitle" id="loadText">Initializing hearts...</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="mobileControls">
+  <div class="mBtn" id="btnLeft">◀</div>
+  <div class="mBtn" id="btnRight">▶</div>
+  <div class="mBtn" id="btnJump">▲</div>
+</div>
+
+<script>
+// ============================================================
+// 💝 BE MY VALENTINE, CUTIE? - A game by Pogi for Cutie 💝
+// ============================================================
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONSTANTS ---
+const GRAVITY = 0.6;
+const JUMP_FORCE = -12;
+const MOVE_SPEED = 4;
+const GROUND_Y_RATIO = 0.75;
+const LEVEL_WIDTH = 8000;
+const PIXEL = 4; // pixel art scale
+
+let W, H, GROUND_Y;
+let gameState = 'loading'; // loading, menu, intro, playing, reveal
+let cameraX = 0;
+let score = 0;
+let totalHearts = 0;
+let frameCount = 0;
+let musicStarted = false;
+let isMobile = false;
+
+// --- INPUT ---
+const keys = {};
+const mobileInput = { left: false, right: false, jump: false };
+
+// --- AUDIO ENGINE (Web Audio API chiptune) ---
+let audioCtx = null;
+let musicPlaying = false;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playNote(freq, duration, time, type = 'square', vol = 0.08) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(time);
+  osc.stop(time + duration);
+}
+
+function playJumpSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  playNote(300, 0.1, t, 'square', 0.06);
+  playNote(500, 0.1, t + 0.05, 'square', 0.06);
+}
+
+function playCollectSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  playNote(800, 0.1, t, 'square', 0.08);
+  playNote(1000, 0.1, t + 0.08, 'square', 0.08);
+  playNote(1200, 0.15, t + 0.16, 'square', 0.08);
+}
+
+function playRevealSound() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const notes = [523, 659, 784, 1047, 784, 1047, 1319];
+  notes.forEach((n, i) => playNote(n, 0.3, t + i * 0.2, 'square', 0.1));
+}
+
+let bgMusicInterval = null;
+function startBGMusic() {
+  if (!audioCtx || musicPlaying) return;
+  musicPlaying = true;
+  // Simple looping chiptune melody
+  const melody = [
+    392, 440, 523, 587, 523, 440, 392, 330,
+    294, 330, 392, 440, 392, 330, 294, 262,
+    523, 587, 659, 698, 659, 587, 523, 440,
+    392, 440, 523, 587, 523, 440, 392, 330,
+  ];
+  const bass = [
+    131, 131, 165, 165, 196, 196, 220, 220,
+    131, 131, 165, 165, 196, 196, 131, 131,
+    262, 262, 220, 220, 196, 196, 165, 165,
+    131, 131, 165, 165, 196, 196, 131, 131,
+  ];
+  let noteIdx = 0;
+  const bpm = 140;
+  const noteLen = 60 / bpm;
+
+  function scheduleNotes() {
+    if (!musicPlaying) return;
+    const t = audioCtx.currentTime;
+    for (let i = 0; i < 8; i++) {
+      const idx = (noteIdx + i) % melody.length;
+      playNote(melody[idx], noteLen * 0.8, t + i * noteLen, 'square', 0.04);
+      playNote(bass[idx], noteLen * 0.9, t + i * noteLen, 'triangle', 0.05);
+      // hi-hat
+      if (i % 2 === 0) {
+        playNote(800 + Math.random() * 200, 0.05, t + i * noteLen, 'sawtooth', 0.01);
+      }
+    }
+    noteIdx = (noteIdx + 8) % melody.length;
+  }
+
+  scheduleNotes();
+  bgMusicInterval = setInterval(scheduleNotes, noteLen * 8 * 1000);
+}
+
+function stopBGMusic() {
+  musicPlaying = false;
+  if (bgMusicInterval) clearInterval(bgMusicInterval);
+}
+
+// --- PIXEL ART DRAWING HELPERS ---
+function drawPixelRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x - cameraX), Math.floor(y), Math.floor(w), Math.floor(h));
+}
+
+function drawPixelChar(px, py, pixels, scale = 3) {
+  // pixels is array of { x, y, c } or a 2D color map
+  pixels.forEach(p => {
+    ctx.fillStyle = p.c;
+    ctx.fillRect(
+      Math.floor(px - cameraX + p.x * scale),
+      Math.floor(py + p.y * scale),
+      scale, scale
+    );
+  });
+}
+
+// --- SPRITE GENERATORS ---
+function generatePlayerSprite(frame) {
+  // Cute girl character - Christine / "Cutie"
+  const p = [];
+  const hair = '#4a2728'; // dark brown hair
+  const skin = '#ffcc99';
+  const dress = '#ff69b4'; // pink dress
+  const shoe = '#ff1493';
+  const eye = '#2d1b00';
+  const blush = '#ff9999';
+
+  // Hair
+  for (let x = 1; x <= 5; x++) p.push({x, y: 0, c: hair});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 1, c: hair});
+  p.push({x: 0, y: 2, c: hair});
+  p.push({x: 6, y: 2, c: hair});
+
+  // Face
+  for (let x = 1; x <= 5; x++) p.push({x, y: 2, c: skin});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 3, c: skin});
+  // Eyes
+  p.push({x: 2, y: 3, c: eye});
+  p.push({x: 4, y: 3, c: eye});
+  // Blush
+  p.push({x: 1, y: 3, c: blush});
+  p.push({x: 5, y: 3, c: blush});
+  // Mouth
+  for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
+  p.push({x: 3, y: 4, c: '#ff6666'});
+
+  // Dress body
+  for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: dress});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: dress});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: dress});
+
+  // Arms (animated)
+  const armOff = frame % 2 === 0 ? 0 : -1;
+  p.push({x: -1, y: 5 + armOff, c: skin});
+  p.push({x: 7, y: 5 + armOff, c: skin});
+
+  // Legs (animated)
+  const legFrame = Math.floor(frame / 4) % 2;
+  if (legFrame === 0) {
+    p.push({x: 2, y: 8, c: shoe});
+    p.push({x: 4, y: 8, c: shoe});
+  } else {
+    p.push({x: 1, y: 8, c: shoe});
+    p.push({x: 5, y: 8, c: shoe});
+  }
+
+  // Hair bow
+  p.push({x: 6, y: 0, c: '#ff1493'});
+  p.push({x: 7, y: 0, c: '#ff1493'});
+  p.push({x: 6, y: 1, c: '#ff1493'});
+
+  return p;
+}
+
+function generateOscarSprite() {
+  // Oscar / "Pogi" - at the end holding flowers
+  const p = [];
+  const hair = '#1a1a1a';
+  const skin = '#e8b878';
+  const shirt = '#4169e1';
+  const pants = '#2c2c54';
+  const shoe = '#333';
+  const eye = '#1a1a1a';
+
+  // Hair
+  for (let x = 1; x <= 5; x++) p.push({x, y: 0, c: hair});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 1, c: hair});
+
+  // Face
+  for (let x = 0; x <= 6; x++) p.push({x, y: 2, c: skin});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 3, c: skin});
+  p.push({x: 2, y: 3, c: eye});
+  p.push({x: 4, y: 3, c: eye});
+  for (let x = 1; x <= 5; x++) p.push({x, y: 4, c: skin});
+  p.push({x: 3, y: 4, c: '#cc4444'}); // smile
+
+  // Shirt
+  for (let x = 1; x <= 5; x++) p.push({x, y: 5, c: shirt});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 6, c: shirt});
+  for (let x = 0; x <= 6; x++) p.push({x, y: 7, c: shirt});
+
+  // Arms holding flowers
+  p.push({x: -1, y: 5, c: skin});
+  p.push({x: -2, y: 4, c: skin});
+  p.push({x: 7, y: 5, c: skin});
+  p.push({x: 8, y: 4, c: skin});
+
+  // Flowers in hand
+  p.push({x: -2, y: 3, c: '#ff69b4'});
+  p.push({x: -3, y: 2, c: '#ff1493'});
+  p.push({x: -2, y: 2, c: '#ff69b4'});
+  p.push({x: -1, y: 2, c: '#ff1493'});
+  p.push({x: -3, y: 3, c: '#228b22'}); // stem
+  p.push({x: -2, y: 3, c: '#ff69b4'});
+
+  // Pants
+  p.push({x: 1, y: 8, c: pants}); p.push({x: 2, y: 8, c: pants});
+  p.push({x: 4, y: 8, c: pants}); p.push({x: 5, y: 8, c: pants});
+
+  // Shoes
+  p.push({x: 1, y: 9, c: shoe}); p.push({x: 2, y: 9, c: shoe});
+  p.push({x: 4, y: 9, c: shoe}); p.push({x: 5, y: 9, c: shoe});
+
+  // Heart above head
+  const hb = (Math.sin(frameCount * 0.1) > 0) ? 1 : 0;
+  p.push({x: 2, y: -2 - hb, c: '#ff0000'});
+  p.push({x: 4, y: -2 - hb, c: '#ff0000'});
+  p.push({x: 1, y: -3 - hb, c: '#ff0000'});
+  p.push({x: 2, y: -3 - hb, c: '#ff0000'});
+  p.push({x: 3, y: -3 - hb, c: '#ff0000'});
+  p.push({x: 4, y: -3 - hb, c: '#ff0000'});
+  p.push({x: 5, y: -3 - hb, c: '#ff0000'});
+  p.push({x: 3, y: -1 - hb, c: '#ff0000'});
+
+  return p;
+}
+
+// --- HEART COLLECTIBLE ---
+function drawHeart(x, y, size, color = '#ff0000') {
+  const s = size;
+  const sx = Math.floor(x - cameraX);
+  const sy = Math.floor(y);
+  ctx.fillStyle = color;
+  // Simple pixel heart
+  ctx.fillRect(sx + s, sy, s, s);
+  ctx.fillRect(sx + 2*s, sy, s, s);
+  ctx.fillRect(sx + 4*s, sy, s, s);
+  ctx.fillRect(sx + 5*s, sy, s, s);
+  ctx.fillRect(sx, sy + s, s*3, s);
+  ctx.fillRect(sx + 4*s, sy + s, s*3, s);
+  ctx.fillRect(sx, sy + 2*s, s*7, s);
+  ctx.fillRect(sx + s, sy + 3*s, s*5, s);
+  ctx.fillRect(sx + 2*s, sy + 4*s, s*3, s);
+  ctx.fillRect(sx + 3*s, sy + 5*s, s, s);
+}
+
+// --- CHERRY BLOSSOM TREE ---
+function drawTree(x, y) {
+  const sx = Math.floor(x - cameraX);
+  const sy = Math.floor(y);
+  // Trunk
+  ctx.fillStyle = '#8B5E3C';
+  ctx.fillRect(sx + 20, sy - 60, 12, 60);
+  // Branches
+  ctx.fillRect(sx + 10, sy - 70, 8, 12);
+  ctx.fillRect(sx + 34, sy - 65, 8, 10);
+  // Foliage (pink blossoms)
+  const colors = ['#FFB7C5', '#FF69B4', '#FFC0CB', '#FFD1DC', '#fff'];
+  for (let i = 0; i < 12; i++) {
+    const bx = sx + 5 + Math.sin(i * 1.5) * 25 + (i % 3) * 8;
+    const by = sy - 90 + Math.cos(i * 2) * 15 + (i % 4) * 5;
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(bx, by, 12, 10);
+  }
+  // More foliage density
+  for (let i = 0; i < 8; i++) {
+    const bx = sx + 10 + (i % 4) * 10;
+    const by = sy - 100 + Math.floor(i / 4) * 15;
+    ctx.fillStyle = colors[(i + 2) % colors.length];
+    ctx.fillRect(bx, by, 14, 12);
+  }
+}
+
+// --- GAME OBJECTS ---
+let player = null;
+let platforms = [];
+let collectibles = [];
+let obstacles = [];
+let particles = [];
+let trees = [];
+let easterEggs = [];
+let oscarNPC = null;
+let menuAlpha = 0;
+let introTimer = 0;
+let introText = '';
+let revealTimer = 0;
+let confettiParticles = [];
+
+function resetGame() {
+  cameraX = 0;
+  score = 0;
+  frameCount = 0;
+
+  player = {
+    x: 100, y: 0, vx: 0, vy: 0,
+    w: 7 * 3, h: 9 * 3, // sprite size * scale
+    onGround: false,
+    facing: 1,
+    frame: 0
+  };
+  player.y = GROUND_Y - player.h;
+
+  // Generate level
+  platforms = [];
+  collectibles = [];
+  obstacles = [];
+  trees = [];
+  easterEggs = [];
+
+  // Ground
+  platforms.push({ x: 0, y: GROUND_Y, w: LEVEL_WIDTH, h: 200, color: '#3d2b1f' });
+
+  // Cherry blossom trees in background
+  for (let i = 0; i < 20; i++) {
+    trees.push({ x: 200 + i * 400 + Math.random() * 100, y: GROUND_Y });
+  }
+
+  // Floating platforms
+  const platPositions = [
+    { x: 400, y: GROUND_Y - 80 },
+    { x: 600, y: GROUND_Y - 130 },
+    { x: 900, y: GROUND_Y - 90 },
+    { x: 1200, y: GROUND_Y - 120 },
+    { x: 1500, y: GROUND_Y - 70 },
+    { x: 1800, y: GROUND_Y - 140 },
+    { x: 2100, y: GROUND_Y - 100 },
+    { x: 2500, y: GROUND_Y - 80 },
+    { x: 2800, y: GROUND_Y - 130 },
+    { x: 3100, y: GROUND_Y - 90 },
+    { x: 3500, y: GROUND_Y - 110 },
+    { x: 3900, y: GROUND_Y - 70 },
+    { x: 4200, y: GROUND_Y - 140 },
+    { x: 4600, y: GROUND_Y - 90 },
+    { x: 5000, y: GROUND_Y - 120 },
+    { x: 5400, y: GROUND_Y - 80 },
+    { x: 5800, y: GROUND_Y - 100 },
+    { x: 6200, y: GROUND_Y - 130 },
+    { x: 6600, y: GROUND_Y - 70 },
+    { x: 7000, y: GROUND_Y - 110 },
+  ];
+  platPositions.forEach(pp => {
+    platforms.push({ x: pp.x, y: pp.y, w: 100, h: 16, color: '#8B5E3C' });
+  });
+
+  // Heart collectibles
+  const heartPositions = [
+    300, 500, 650, 850, 1050, 1250, 1450, 1650, 1850, 2050,
+    2300, 2550, 2750, 2950, 3150, 3350, 3600, 3850, 4050,
+    4300, 4550, 4750, 5050, 5300, 5500, 5700, 5950, 6150,
+    6400, 6650, 6850, 7100
+  ];
+  heartPositions.forEach((hx, i) => {
+    const onPlat = platPositions.find(p => Math.abs(p.x + 50 - hx) < 60);
+    const hy = onPlat ? onPlat.y - 35 : GROUND_Y - 50 - Math.sin(i) * 20;
+    collectibles.push({ x: hx, y: hy, w: 21, h: 18, collected: false, type: 'heart' });
+  });
+  totalHearts = collectibles.length;
+
+  // Petal collectibles
+  for (let i = 0; i < 15; i++) {
+    collectibles.push({
+      x: 200 + i * 500 + Math.random() * 200,
+      y: GROUND_Y - 60 - Math.random() * 80,
+      w: 12, h: 12, collected: false, type: 'petal'
+    });
+  }
+
+  // Easter egg obstacles/signs
+  const eggData = [
+    { x: 700, text: '🍜 Rakkan Ramen', desc: 'Our spot!' },
+    { x: 1400, text: '⚓ Raft', desc: 'We survived!' },
+    { x: 2000, text: '🎮 Stardew Valley', desc: 'Our farm 💚' },
+    { x: 2600, text: '⛏️ Minecraft', desc: 'Building together' },
+    { x: 3200, text: '🎓 CSULB', desc: 'Java class ☕' },
+    { x: 3800, text: '💬 Discord', desc: 'Where it started' },
+    { x: 4400, text: '🫘 Fall Guys', desc: 'WOOO!' },
+    { x: 5000, text: '🕹️ Round 1', desc: 'Date night!' },
+    { x: 5600, text: '🏖️ Beach', desc: 'Sunsets 🌅' },
+    { x: 6200, text: '🎬 Movies', desc: 'Popcorn time' },
+    { x: 6800, text: '💕 ~3 Years', desc: 'And counting...' },
+  ];
+  eggData.forEach(e => {
+    easterEggs.push({ x: e.x, y: GROUND_Y - 45, text: e.text, desc: e.desc, w: 60, h: 45 });
+  });
+
+  // Oscar at the end
+  oscarNPC = { x: LEVEL_WIDTH - 200, y: GROUND_Y - 30 };
+}
+
+// --- PARTICLES ---
+function spawnPetal(x, y) {
+  particles.push({
+    x: x || Math.random() * W + cameraX,
+    y: y || -10,
+    vx: Math.random() * 2 - 1,
+    vy: Math.random() * 1 + 0.5,
+    size: Math.random() * 4 + 2,
+    color: ['#FFB7C5', '#FF69B4', '#FFC0CB', '#fff'][Math.floor(Math.random() * 4)],
+    life: 300 + Math.random() * 200,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() - 0.5) * 0.1
+  });
+}
+
+function spawnConfetti(x, y) {
+  const colors = ['#ff69b4', '#ff1493', '#ff0000', '#ffd700', '#ff6347', '#fff', '#ffb7c5'];
+  for (let i = 0; i < 8; i++) {
+    confettiParticles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 10,
+      vy: -Math.random() * 12 - 2,
+      size: Math.random() * 6 + 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      life: 120 + Math.random() * 60,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3
+    });
+  }
+}
+
+// --- GAME LOGIC ---
+function updatePlayer() {
+  // Input
+  const left = keys['ArrowLeft'] || keys['a'] || keys['A'] || mobileInput.left;
+  const right = keys['ArrowRight'] || keys['d'] || keys['D'] || mobileInput.right;
+  const jump = keys['ArrowUp'] || keys['w'] || keys['W'] || keys[' '] || mobileInput.jump;
+
+  if (left) { player.vx = -MOVE_SPEED; player.facing = -1; }
+  else if (right) { player.vx = MOVE_SPEED; player.facing = 1; }
+  else { player.vx *= 0.7; }
+
+  if (jump && player.onGround) {
+    player.vy = JUMP_FORCE;
+    player.onGround = false;
+    playJumpSound();
+  }
+
+  // Physics
+  player.vy += GRAVITY;
+  player.x += player.vx;
+  player.y += player.vy;
+
+  // Platform collision
+  player.onGround = false;
+  platforms.forEach(plat => {
+    if (player.x + player.w > plat.x && player.x < plat.x + plat.w &&
+        player.y + player.h > plat.y && player.y + player.h < plat.y + plat.h + 10 &&
+        player.vy >= 0) {
+      player.y = plat.y - player.h;
+      player.vy = 0;
+      player.onGround = true;
+    }
+  });
+
+  // Keep in bounds
+  if (player.x < 0) player.x = 0;
+  if (player.x > LEVEL_WIDTH - player.w) player.x = LEVEL_WIDTH - player.w;
+
+  // Animate
+  if (Math.abs(player.vx) > 0.5) player.frame++;
+
+  // Collectibles
+  collectibles.forEach(c => {
+    if (c.collected) return;
+    if (player.x + player.w > c.x && player.x < c.x + c.w &&
+        player.y + player.h > c.y && player.y < c.y + c.h) {
+      c.collected = true;
+      if (c.type === 'heart') score++;
+      playCollectSound();
+      for (let i = 0; i < 6; i++) spawnPetal(c.x + c.w/2, c.y + c.h/2);
+    }
+  });
+
+  // Check if reached Oscar
+  if (player.x + player.w > oscarNPC.x - 30 && gameState === 'playing') {
+    gameState = 'reveal';
+    revealTimer = 0;
+    stopBGMusic();
+    playRevealSound();
+  }
+
+  // Camera
+  const targetCam = player.x - W / 3;
+  cameraX += (targetCam - cameraX) * 0.1;
+  if (cameraX < 0) cameraX = 0;
+  if (cameraX > LEVEL_WIDTH - W) cameraX = LEVEL_WIDTH - W;
+}
+
+// --- RENDERING ---
+function drawSky() {
+  // Gradient sky - pink sunset
+  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  grad.addColorStop(0, '#2d1b4e');
+  grad.addColorStop(0.3, '#5c2d6e');
+  grad.addColorStop(0.6, '#ff69b4');
+  grad.addColorStop(1, '#ffb7c5');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Stars
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 50; i++) {
+    const sx = ((i * 137 + 50) % W + (cameraX * 0.05) % W) % W;
+    const sy = (i * 97 + 30) % (GROUND_Y * 0.5);
+    const twinkle = Math.sin(frameCount * 0.05 + i) > 0.3 ? 2 : 1;
+    ctx.fillRect(sx, sy, twinkle, twinkle);
+  }
+
+  // Moon
+  ctx.fillStyle = '#ffeedd';
+  const moonX = W * 0.8 - cameraX * 0.02;
+  ctx.beginPath();
+  ctx.arc(moonX, 60, 30, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawGround() {
+  // Grass layer
+  ctx.fillStyle = '#5a8a3c';
+  ctx.fillRect(0, GROUND_Y - 8, W, 8);
+
+  // Dirt
+  ctx.fillStyle = '#3d2b1f';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+
+  // Pixel grass tufts
+  ctx.fillStyle = '#6db33f';
+  for (let i = 0; i < W; i += 12) {
+    const wx = (i + Math.floor(cameraX) % 12);
+    if (wx % 24 < 12) {
+      ctx.fillRect(i, GROUND_Y - 12, 4, 4);
+      ctx.fillRect(i + 6, GROUND_Y - 10, 3, 2);
+    }
+  }
+}
+
+function drawPlatforms() {
+  platforms.forEach((p, i) => {
+    if (i === 0) return; // skip ground
+    const sx = Math.floor(p.x - cameraX);
+    if (sx > W + 10 || sx + p.w < -10) return;
+
+    // Minecraft-style block
+    ctx.fillStyle = '#6db33f'; // grass top
+    ctx.fillRect(sx, p.y, p.w, 4);
+    ctx.fillStyle = '#8B5E3C'; // dirt
+    ctx.fillRect(sx, p.y + 4, p.w, p.h - 4);
+    // Pixel detail
+    ctx.fillStyle = '#7a5030';
+    for (let bx = 0; bx < p.w; bx += 16) {
+      ctx.fillRect(sx + bx + 4, p.y + 8, 8, 2);
+    }
+  });
+}
+
+function drawCollectibles() {
+  collectibles.forEach(c => {
+    if (c.collected) return;
+    const sx = Math.floor(c.x - cameraX);
+    if (sx > W + 30 || sx + c.w < -30) return;
+
+    const bob = Math.sin(frameCount * 0.08 + c.x * 0.01) * 3;
+
+    if (c.type === 'heart') {
+      drawHeart(c.x, c.y + bob, 3, '#ff0000');
+      // Glow
+      ctx.fillStyle = 'rgba(255,0,0,0.15)';
+      ctx.beginPath();
+      ctx.arc(sx + c.w/2, c.y + bob + c.h/2, 18, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Petal
+      ctx.fillStyle = '#FFB7C5';
+      const py = c.y + bob;
+      ctx.fillRect(sx + 2, py, 8, 3);
+      ctx.fillRect(sx + 4, py - 2, 4, 7);
+      ctx.fillStyle = '#ff69b4';
+      ctx.fillRect(sx + 5, py + 1, 2, 2);
+    }
+  });
+}
+
+function drawEasterEggs() {
+  easterEggs.forEach(e => {
+    const sx = Math.floor(e.x - cameraX);
+    if (sx > W + 80 || sx < -80) return;
+
+    // Sign post
+    ctx.fillStyle = '#8B5E3C';
+    ctx.fillRect(sx + 25, e.y, 8, 45);
+    // Sign board
+    ctx.fillStyle = '#f5e6c8';
+    ctx.fillRect(sx, e.y - 10, 58, 28);
+    ctx.fillStyle = '#8B5E3C';
+    ctx.strokeStyle = '#5a3a1a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx, e.y - 10, 58, 28);
+
+    // Text
+    ctx.fillStyle = '#2d1b00';
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillText(e.text, sx + 3, e.y + 3);
+    ctx.fillStyle = '#ff69b4';
+    ctx.font = '5px "Press Start 2P", monospace';
+    ctx.fillText(e.desc, sx + 3, e.y + 12);
+  });
+}
+
+function drawPlayer() {
+  const sprite = generatePlayerSprite(player.frame);
+  const sx = player.facing === -1 ? player.x + player.w : player.x;
+  const scale = 3;
+
+  sprite.forEach(p => {
+    ctx.fillStyle = p.c;
+    const px = player.facing === -1
+      ? Math.floor(sx - cameraX - p.x * scale - scale)
+      : Math.floor(sx - cameraX + p.x * scale);
+    ctx.fillRect(px, Math.floor(player.y + p.y * scale), scale, scale);
+  });
+
+  // Name tag
+  ctx.fillStyle = '#fff';
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Cutie', Math.floor(player.x - cameraX + player.w / 2), Math.floor(player.y - 8));
+  ctx.textAlign = 'left';
+}
+
+function drawOscar() {
+  if (gameState !== 'playing' && gameState !== 'reveal') return;
+  const sx = Math.floor(oscarNPC.x - cameraX);
+  if (sx > W + 50 || sx < -50) return;
+
+  const sprite = generateOscarSprite();
+  sprite.forEach(p => {
+    ctx.fillStyle = p.c;
+    ctx.fillRect(
+      Math.floor(oscarNPC.x - cameraX + p.x * 3),
+      Math.floor(oscarNPC.y + p.y * 3),
+      3, 3
+    );
+  });
+
+  // Name tag
+  ctx.fillStyle = '#fff';
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Pogi', sx + 10, Math.floor(oscarNPC.y - 20));
+  ctx.textAlign = 'left';
+}
+
+function drawParticles() {
+  // Cherry blossom petals
+  particles.forEach((p, i) => {
+    p.x += p.vx + Math.sin(frameCount * 0.02 + i) * 0.3;
+    p.y += p.vy;
+    p.rot += p.rotSpeed;
+    p.life--;
+
+    ctx.save();
+    ctx.translate(p.x - cameraX, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.min(1, p.life / 50);
+    ctx.fillRect(-p.size/2, -p.size/4, p.size, p.size/2);
+    ctx.restore();
+  });
+  particles = particles.filter(p => p.life > 0 && p.y < H + 10);
+
+  // Spawn new petals
+  if (frameCount % 8 === 0) spawnPetal();
+
+  // Confetti
+  confettiParticles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.rot += p.rotSpeed;
+    p.life--;
+
+    ctx.save();
+    ctx.translate(p.x - cameraX, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.min(1, p.life / 30);
+    ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    ctx.restore();
+  });
+  confettiParticles = confettiParticles.filter(p => p.life > 0);
+}
+
+function drawHUD() {
+  ctx.globalAlpha = 1;
+  // Heart counter
+  drawHeart(cameraX + 15, 15, 2, '#ff0000');
+  ctx.fillStyle = '#fff';
+  ctx.font = '10px "Press Start 2P", monospace';
+  ctx.fillText(`${score}/${totalHearts}`, 42, 28);
+
+  // Progress bar
+  const progress = player.x / LEVEL_WIDTH;
+  const barW = 120;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(W - barW - 15, 12, barW, 10);
+  ctx.fillStyle = '#ff69b4';
+  ctx.fillRect(W - barW - 15, 12, barW * progress, 10);
+  ctx.fillStyle = '#fff';
+  ctx.font = '6px "Press Start 2P", monospace';
+  ctx.fillText('♥ → Pogi', W - barW - 10, 32);
+}
+
+// --- MENU SCREEN ---
+function drawMenu() {
+  // Background
+  drawSky();
+
+  // Title cherry blossom rain
+  drawParticles();
+
+  // Dim overlay
+  ctx.fillStyle = 'rgba(26, 10, 26, 0.6)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Pixel border
+  ctx.strokeStyle = '#ff69b4';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, W - 20, H - 20);
+  ctx.strokeStyle = '#ff1493';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(16, 16, W - 32, H - 32);
+
+  // Title
+  const titleY = H * 0.2;
+  ctx.fillStyle = '#ff69b4';
+  ctx.font = `${Math.min(24, W * 0.04)}px "Press Start 2P", monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText('💝 VALENTINE QUEST 💝', W / 2, titleY);
+
+  ctx.fillStyle = '#FFB7C5';
+  ctx.font = `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`;
+  ctx.fillText('A Game by Pogi for Cutie', W / 2, titleY + 30);
+
+  // Animated hearts
+  for (let i = 0; i < 5; i++) {
+    const hx = W * 0.2 + i * W * 0.15;
+    const hy = titleY + 50 + Math.sin(frameCount * 0.05 + i) * 8;
+    drawHeart(hx + cameraX, hy, 2, i % 2 === 0 ? '#ff0000' : '#ff69b4');
+  }
+
+  // Instructions
+  const instY = H * 0.55;
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
+  ctx.fillText('🌸 Help Cutie collect hearts! 🌸', W / 2, instY);
+  ctx.fillText('Run to Pogi at the end!', W / 2, instY + 25);
+
+  if (isMobile) {
+    ctx.fillText('Use buttons to move & jump', W / 2, instY + 55);
+  } else {
+    ctx.fillText('Arrow Keys / WASD to move', W / 2, instY + 50);
+    ctx.fillText('Space / Up to jump', W / 2, instY + 70);
+  }
+
+  // Blinking start text
+  if (Math.sin(frameCount * 0.08) > 0) {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = `${Math.min(14, W * 0.025)}px "Press Start 2P", monospace`;
+    ctx.fillText('♥ PRESS START ♥', W / 2, H * 0.82);
+    ctx.fillStyle = '#ff69b4';
+    ctx.font = `${Math.min(9, W * 0.015)}px "Press Start 2P", monospace`;
+    ctx.fillText('(Tap or press any key)', W / 2, H * 0.82 + 22);
+  }
+
+  // Player 2 reference
+  ctx.fillStyle = '#ff99cc';
+  ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
+  ctx.fillText('♥ Player 2 has joined ♥', W / 2, H * 0.92);
+
+  ctx.textAlign = 'left';
+}
+
+// --- INTRO SEQUENCE ---
+const introLines = [
+  'Loading love.exe...',
+  '████████████████ 100%',
+  '',
+  'Pogi & Cutie',
+  'A Love Story...',
+  '',
+  'Almost 3 years and counting!',
+  '',
+  'Help Cutie run to Pogi!',
+  'Collect hearts along the way!',
+  '',
+  '♥ GET READY ♥'
+];
+
+function drawIntro() {
+  ctx.fillStyle = '#1a0a1a';
+  ctx.fillRect(0, 0, W, H);
+
+  const lineH = Math.min(18, H * 0.04);
+  const startY = H * 0.15;
+  const linesShown = Math.min(introLines.length, Math.floor(introTimer / 40));
+
+  ctx.font = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
+  ctx.textAlign = 'center';
+
+  for (let i = 0; i < linesShown; i++) {
+    const alpha = Math.min(1, (introTimer - i * 40) / 20);
+    ctx.fillStyle = i === 3 || i === 4 ? `rgba(255,105,180,${alpha})` :
+                    i === introLines.length - 1 ? `rgba(255,215,0,${alpha})` :
+                    `rgba(255,255,255,${alpha})`;
+    ctx.fillText(introLines[i], W / 2, startY + i * lineH * 1.5);
+  }
+
+  if (introTimer > introLines.length * 40 + 60) {
+    gameState = 'playing';
+    startBGMusic();
+  }
+
+  // Skip hint
+  if (Math.sin(frameCount * 0.1) > 0) {
+    ctx.fillStyle = 'rgba(255,153,204,0.6)';
+    ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
+    ctx.fillText('Press any key to skip', W / 2, H * 0.92);
+  }
+
+  ctx.textAlign = 'left';
+  introTimer++;
+}
+
+// --- REVEAL SCREEN ---
+function drawReveal() {
+  revealTimer++;
+
+  // Still show the game behind
+  drawSky();
+  trees.forEach(t => {
+    const sx = Math.floor(t.x - cameraX);
+    if (sx > -80 && sx < W + 80) drawTree(t.x, t.y);
+  });
+  drawGround();
+  drawPlatforms();
+  drawOscar();
+  drawPlayer();
+  drawParticles();
+
+  // Overlay
+  const overlayAlpha = Math.min(0.8, revealTimer / 120);
+  ctx.fillStyle = `rgba(26, 10, 26, ${overlayAlpha})`;
+  ctx.fillRect(0, 0, W, H);
+
+  if (revealTimer > 60) {
+    // Big heart
+    const heartScale = Math.min(1, (revealTimer - 60) / 60);
+    const heartSize = Math.min(6, W * 0.01) * heartScale;
+    drawHeart(W / 2 - heartSize * 3.5 + cameraX, H * 0.15, heartSize, '#ff0000');
+
+    // Main text
+    if (revealTimer > 120) {
+      const textAlpha = Math.min(1, (revealTimer - 120) / 40);
+      ctx.textAlign = 'center';
+
+      ctx.fillStyle = `rgba(255,105,180,${textAlpha})`;
+      ctx.font = `${Math.min(22, W * 0.038)}px "Press Start 2P", monospace`;
+      ctx.fillText('Be My Valentine,', W / 2, H * 0.45);
+
+      ctx.fillStyle = `rgba(255,215,0,${textAlpha})`;
+      ctx.font = `${Math.min(28, W * 0.048)}px "Press Start 2P", monospace`;
+      ctx.fillText('Cutie? 💝', W / 2, H * 0.55);
+
+      // Score
+      if (revealTimer > 180) {
+        ctx.fillStyle = `rgba(255,255,255,${Math.min(1, (revealTimer - 180) / 40)})`;
+        ctx.font = `${Math.min(10, W * 0.018)}px "Press Start 2P", monospace`;
+        ctx.fillText(`Hearts collected: ${score}/${totalHearts}`, W / 2, H * 0.67);
+        ctx.fillText('🌸 I love you! 🌸', W / 2, H * 0.73);
+        ctx.fillStyle = `rgba(255,153,204,${Math.min(1, (revealTimer - 180) / 40)})`;
+        ctx.font = `${Math.min(8, W * 0.013)}px "Press Start 2P", monospace`;
+        ctx.fillText('- Your Pogi ♥', W / 2, H * 0.8);
+      }
+
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // Confetti
+  if (revealTimer > 80 && revealTimer % 5 === 0) {
+    spawnConfetti(Math.random() * W + cameraX, -20);
+    spawnConfetti(Math.random() * W + cameraX, -20);
+  }
+}
+
+// --- MAIN GAME LOOP ---
+function update() {
+  if (gameState === 'playing') {
+    updatePlayer();
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  if (gameState === 'menu') {
+    drawMenu();
+  } else if (gameState === 'intro') {
+    drawIntro();
+  } else if (gameState === 'playing' || gameState === 'reveal') {
+    drawSky();
+
+    // Trees (background layer, parallax)
+    trees.forEach(t => {
+      const sx = Math.floor(t.x - cameraX * 0.7);
+      if (sx > -80 && sx < W + 80) {
+        // Draw with parallax offset
+        const oldCam = cameraX;
+        cameraX *= 0.7;
+        drawTree(t.x, t.y);
+        cameraX = oldCam;
+      }
+    });
+
+    drawGround();
+    drawPlatforms();
+    drawCollectibles();
+    drawEasterEggs();
+    drawOscar();
+    drawPlayer();
+    drawParticles();
+    drawHUD();
+
+    if (gameState === 'reveal') drawReveal();
+  }
+
+  frameCount++;
+}
+
+function gameLoop() {
+  update();
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// --- RESIZE ---
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  GROUND_Y = Math.floor(H * GROUND_Y_RATIO);
+
+  isMobile = ('ontouchstart' in window) || window.innerWidth < 768;
+  document.getElementById('mobileControls').style.display = isMobile ? 'block' : 'none';
+}
+
+// --- INPUT HANDLERS ---
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (gameState === 'menu') {
+    initAudio();
+    gameState = 'intro';
+    introTimer = 0;
+  } else if (gameState === 'intro') {
+    gameState = 'playing';
+    startBGMusic();
+  }
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// Mobile controls
+function setupMobileBtn(id, inputKey) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    mobileInput[inputKey] = true;
+    if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
+    else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
+  });
+  btn.addEventListener('touchend', e => {
+    e.preventDefault();
+    mobileInput[inputKey] = false;
+  });
+  btn.addEventListener('touchcancel', e => { mobileInput[inputKey] = false; });
+}
+
+// Canvas tap for menu
+canvas.addEventListener('touchstart', e => {
+  if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
+  else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
+});
+canvas.addEventListener('click', () => {
+  if (gameState === 'menu') { initAudio(); gameState = 'intro'; introTimer = 0; }
+  else if (gameState === 'intro') { gameState = 'playing'; startBGMusic(); }
+});
+
+// --- LOADING SEQUENCE ---
+function fakeLoading() {
+  const bar = document.getElementById('loadBar');
+  const text = document.getElementById('loadText');
+  const msgs = [
+    'Initializing hearts...',
+    'Loading cherry blossoms...',
+    'Spawning pixel art...',
+    'Tuning 8-bit music...',
+    'Planting sakura trees...',
+    'Finding Pogi...',
+    'Ready! ♥'
+  ];
+  let progress = 0;
+  const interval = setInterval(() => {
+    progress += Math.random() * 20 + 5;
+    if (progress > 100) progress = 100;
+    bar.style.width = progress + '%';
+    text.textContent = msgs[Math.min(Math.floor(progress / 15), msgs.length - 1)];
+    if (progress >= 100) {
+      clearInterval(interval);
+      setTimeout(() => {
+        document.getElementById('loading').style.opacity = '0';
+        setTimeout(() => {
+          document.getElementById('loading').style.display = 'none';
+          gameState = 'menu';
+        }, 500);
+      }, 500);
+    }
+  }, 300);
+}
+
+// --- INIT ---
+window.addEventListener('resize', resize);
+resize();
+resetGame();
+setupMobileBtn('btnLeft', 'left');
+setupMobileBtn('btnRight', 'right');
+setupMobileBtn('btnJump', 'jump');
+fakeLoading();
+gameLoop();
+
+</script>
+</body>
+</html>
