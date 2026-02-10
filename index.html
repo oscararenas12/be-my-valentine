@@ -99,7 +99,7 @@ body {
 
 <script>
 // ============================================================
-// 💝 BE MY VALENTINE, CUTIE? - A game by Pogi for Cutie 💝
+// 💝 BE MY VALENTINE, CUTIE? - A Game Inspired by Pogi for Cutie 💝
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -401,26 +401,82 @@ function drawHeart(x, y, size, color = '#ff0000') {
 function drawTree(x, y) {
   const sx = Math.floor(x - cameraX);
   const sy = Math.floor(y);
-  // Trunk
+
+  // Main trunk - thicker, taller
+  ctx.fillStyle = '#6B4226';
+  ctx.fillRect(sx + 22, sy - 90, 16, 90);
+  // Trunk highlights
   ctx.fillStyle = '#8B5E3C';
-  ctx.fillRect(sx + 20, sy - 60, 12, 60);
+  ctx.fillRect(sx + 26, sy - 85, 4, 80);
+  // Trunk dark side
+  ctx.fillStyle = '#4a2e18';
+  ctx.fillRect(sx + 22, sy - 90, 3, 90);
+
   // Branches
-  ctx.fillRect(sx + 10, sy - 70, 8, 12);
-  ctx.fillRect(sx + 34, sy - 65, 8, 10);
-  // Foliage (pink blossoms)
-  const colors = ['#FFB7C5', '#FF69B4', '#FFC0CB', '#FFD1DC', '#fff'];
-  for (let i = 0; i < 12; i++) {
-    const bx = sx + 5 + Math.sin(i * 1.5) * 25 + (i % 3) * 8;
-    const by = sy - 90 + Math.cos(i * 2) * 15 + (i % 4) * 5;
-    ctx.fillStyle = colors[i % colors.length];
-    ctx.fillRect(bx, by, 12, 10);
-  }
-  // More foliage density
-  for (let i = 0; i < 8; i++) {
-    const bx = sx + 10 + (i % 4) * 10;
-    const by = sy - 100 + Math.floor(i / 4) * 15;
-    ctx.fillStyle = colors[(i + 2) % colors.length];
-    ctx.fillRect(bx, by, 14, 12);
+  ctx.fillStyle = '#6B4226';
+  // Left branch
+  ctx.fillRect(sx + 10, sy - 85, 14, 6);
+  ctx.fillRect(sx + 4, sy - 95, 10, 6);
+  // Right branch
+  ctx.fillRect(sx + 36, sy - 80, 14, 6);
+  ctx.fillRect(sx + 44, sy - 90, 10, 6);
+  // Upper branch
+  ctx.fillRect(sx + 18, sy - 100, 6, 12);
+
+  // Canopy clusters - large, round, Minecraft cherry blossom style
+  const blossomColors = ['#FFB7C5', '#FF85A2', '#FFC0CB', '#FFD1DC', '#FFAEC9', '#E8A0BF', '#D4A0C0'];
+  const whiteAccent = ['#fff', '#fff5f5', '#ffe4e8'];
+
+  // Draw canopy as overlapping circles of pixel clusters
+  const canopyClusters = [
+    // Main canopy - big round shape
+    {cx: 30, cy: -110, r: 28},
+    {cx: 10, cy: -100, r: 22},
+    {cx: 50, cy: -100, r: 22},
+    {cx: 20, cy: -120, r: 20},
+    {cx: 40, cy: -120, r: 20},
+    {cx: 30, cy: -130, r: 18},
+    // Outer clusters
+    {cx: -5, cy: -90, r: 16},
+    {cx: 65, cy: -88, r: 16},
+    {cx: 0, cy: -110, r: 14},
+    {cx: 60, cy: -110, r: 14},
+    {cx: 30, cy: -140, r: 14},
+  ];
+
+  canopyClusters.forEach((cl, ci) => {
+    // Fill cluster with pixel blocks
+    for (let px = -cl.r; px <= cl.r; px += 4) {
+      for (let py = -cl.r; py <= cl.r; py += 4) {
+        if (px * px + py * py <= cl.r * cl.r) {
+          const dist = Math.sqrt(px * px + py * py) / cl.r;
+          // Pick color based on position for variety
+          const hash = (Math.abs(px * 7 + py * 13 + ci * 31)) % 10;
+          if (hash < 2) {
+            ctx.fillStyle = whiteAccent[hash % whiteAccent.length];
+          } else {
+            ctx.fillStyle = blossomColors[(hash + ci) % blossomColors.length];
+          }
+          // Slightly darker at edges
+          if (dist > 0.75) {
+            ctx.fillStyle = '#E8A0BF';
+          }
+          ctx.fillRect(sx + cl.cx + px, sy + cl.cy + py, 4, 4);
+        }
+      }
+    }
+  });
+
+  // Falling petals near tree
+  const petalSeed = Math.floor(x) % 100;
+  for (let i = 0; i < 5; i++) {
+    const px = sx + 5 + ((petalSeed + i * 37 + Math.floor(frameCount * 0.3)) % 60);
+    const py = sy - 80 + ((petalSeed + i * 53 + Math.floor(frameCount * 0.5 + i * 20)) % 90);
+    const pAlpha = 0.4 + Math.sin(frameCount * 0.05 + i * 2) * 0.3;
+    ctx.globalAlpha = pAlpha;
+    ctx.fillStyle = ['#FFB7C5', '#FFC0CB', '#fff', '#FFAEC9'][i % 4];
+    ctx.fillRect(px, py, 3, 2);
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -534,7 +590,7 @@ function resetGame() {
     { x: 6800, text: '💕 ~3 Years', desc: 'And counting...' },
   ];
   eggData.forEach(e => {
-    easterEggs.push({ x: e.x, y: GROUND_Y - 55, text: e.text, desc: e.desc, w: 90, h: 55 });
+    easterEggs.push({ x: e.x, y: GROUND_Y - 55, text: e.text, desc: e.desc, w: 160, h: 70 });
   });
 
   // Door before Oscar
@@ -769,22 +825,33 @@ function drawEasterEggs() {
 
     // Sign post
     ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(sx + 35, e.y, 10, 55);
-    // Sign board
+    ctx.fillRect(sx + 65, e.y, 14, 55);
+    // Sign board - much bigger
+    const signW = 160;
+    const signH = 60;
+    const signY = e.y - 30;
     ctx.fillStyle = '#f5e6c8';
-    ctx.fillRect(sx, e.y - 14, 85, 38);
+    ctx.fillRect(sx - 8, signY, signW, signH);
+    // Border
+    ctx.fillStyle = '#5a3a1a';
+    ctx.fillRect(sx - 8, signY, signW, 3);
+    ctx.fillRect(sx - 8, signY + signH - 3, signW, 3);
+    ctx.fillRect(sx - 8, signY, 3, signH);
+    ctx.fillRect(sx - 8 + signW - 3, signY, 3, signH);
+    // Inner border
     ctx.fillStyle = '#8B5E3C';
-    ctx.strokeStyle = '#5a3a1a';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx, e.y - 14, 85, 38);
+    ctx.fillRect(sx - 4, signY + 4, signW - 8, 2);
+    ctx.fillRect(sx - 4, signY + signH - 6, signW - 8, 2);
 
-    // Text
-    ctx.font = '7px "Press Start 2P", monospace';
+    // Text - larger and clearer
+    ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillStyle = '#2d1b00';
-    ctx.fillText(e.text, sx + 4, e.y + 2);
-    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(e.text, sx + signW / 2 - 8, signY + 26);
+    ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillStyle = '#ff69b4';
-    ctx.fillText(e.desc, sx + 4, e.y + 14);
+    ctx.fillText(e.desc, sx + signW / 2 - 8, signY + 44);
+    ctx.textAlign = 'left';
   });
 }
 
@@ -968,7 +1035,7 @@ function drawMenu() {
   // Title
   const titleY = H * 0.2;
   drawText('💝 VALENTINE QUEST 💝', W / 2, titleY, '#ff69b4', `${Math.min(24, W * 0.04)}px "Press Start 2P", monospace`, 'center');
-  drawText('A Game by Pogi for Cutie', W / 2, titleY + 30, '#FFB7C5', `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`, 'center');
+  drawText('A Game Inspired by Pogi for Cutie', W / 2, titleY + 30, '#FFB7C5', `${Math.min(12, W * 0.02)}px "Press Start 2P", monospace`, 'center');
 
   // Animated hearts
   for (let i = 0; i < 5; i++) {
@@ -1167,6 +1234,7 @@ function resize() {
   // Internal resolution stays fixed
   canvas.width = GAME_W;
   canvas.height = GAME_H;
+  ctx.imageSmoothingEnabled = false;
 
   // Scale canvas via CSS to fill window while maintaining aspect ratio
   const windowW = window.innerWidth;
